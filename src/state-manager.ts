@@ -5,7 +5,7 @@
  * 解决全局 Map 的内存泄漏问题
  */
 
-import type { WSClient } from "@wecom/aibot-node-sdk";
+import type { WSClient, WsFrame } from "@wecom/aibot-node-sdk";
 import type { MessageState } from "./interface.js";
 import { createPersistentReqIdStore, type PersistentReqIdStore } from "./reqid-store.js";
 import {
@@ -50,13 +50,13 @@ export function deleteWeComWebSocket(accountId: string): void {
 
 /** 待发送消息类型 */
 export interface PendingMessage {
-  /** 消息 ID（用于去重和日志） */
+  /** 消息 ID（用于日志和定位） */
   id: string;
   /** 账户 ID */
   accountId: string;
   /** 消息内容 */
   payload: {
-    frame: unknown;
+    frame: WsFrame;
     text: string;
     finish: boolean;
     streamId: string;
@@ -67,6 +67,9 @@ export interface PendingMessage {
 
 /** 待发送消息队列（按 accountId 隔离） */
 const pendingQueues = new Map<string, PendingMessage[]>();
+
+/** 正在处理队列的账户集合（防止并发处理） */
+const processingAccounts = new Set<string>();
 
 /**
  * 获取或创建指定账户的待发送队列
@@ -82,9 +85,9 @@ function getOrCreatePendingQueue(accountId: string): PendingMessage[] {
 
 /**
  * 添加待发送消息到队列
- * @returns 是否成功添加（false 表示队列已满或消息已过期）
+ * 若队列已满，会先移除最旧的一条消息，再推入新消息；当前实现始终成功入队
  */
-export function addPendingMessage(message: PendingMessage): boolean {
+export function addPendingMessage(message: PendingMessage): void {
   const queue = getOrCreatePendingQueue(message.accountId);
 
   // 检查队列容量
@@ -94,7 +97,6 @@ export function addPendingMessage(message: PendingMessage): boolean {
   }
 
   queue.push(message);
-  return true;
 }
 
 /**
@@ -121,6 +123,24 @@ export function getPendingMessages(accountId: string): PendingMessage[] {
  */
 export function clearPendingMessages(accountId: string): void {
   pendingQueues.delete(accountId);
+}
+
+/**
+ * 检查账户是否正在处理队列
+ */
+export function isProcessingQueue(accountId: string): boolean {
+  return processingAccounts.has(accountId);
+}
+
+/**
+ * 设置账户队列处理状态
+ */
+export function setProcessingQueue(accountId: string, processing: boolean): void {
+  if (processing) {
+    processingAccounts.add(accountId);
+  } else {
+    processingAccounts.delete(accountId);
+  }
 }
 
 /**
@@ -344,6 +364,10 @@ export async function cleanupAccount(accountId: string): Promise<void> {
     }
     // 注意：不删除 store，因为重连后可能还需要
   }
+
+  // 3. 清理待发送消息队列
+  clearPendingMessages(accountId);
+  processingAccounts.delete(accountId);
 }
 
 /**
@@ -374,4 +398,8 @@ export async function cleanupAll(): Promise<void> {
 
   // 清空消息状态
   clearAllMessageStates();
+
+  // 清空待发送消息队列
+  pendingQueues.clear();
+  processingAccounts.clear();
 }

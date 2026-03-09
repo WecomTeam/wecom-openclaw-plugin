@@ -33,9 +33,9 @@ export async function sendWeComReply(params: {
   /** 指定 streamId，用于流式回复时保持相同的 streamId */
   streamId?: string;
   /** 账户 ID（用于待发送队列） */
-  accountId?: string;
+  accountId: string;
 }): Promise<string> {
-  const { wsClient, frame, text, runtime, finish = true, streamId: existingStreamId, accountId = "default" } = params;
+  const { wsClient, frame, text, runtime, finish = true, streamId: existingStreamId, accountId } = params;
 
   if (!text) {
     return "";
