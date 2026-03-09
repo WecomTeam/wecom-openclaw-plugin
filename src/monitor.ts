@@ -29,6 +29,7 @@ import {
   MESSAGE_PROCESS_TIMEOUT_MS,
   WS_HEARTBEAT_INTERVAL_MS,
   WS_MAX_RECONNECT_ATTEMPTS,
+  REPLY_SEND_TIMEOUT_MS,
 } from "./const.js";
 import type { WeComMonitorOptions, MessageState } from "./interface.js";
 import { parseMessageContent, type MessageBody } from "./message-parser.js";
@@ -45,6 +46,9 @@ import {
   startMessageStateCleanup,
   stopMessageStateCleanup,
   cleanupAccount,
+  getPendingMessages,
+  clearPendingMessages,
+  removePendingMessage,
 } from "./state-manager.js";
 import { withTimeout } from "./timeout.js";
 
@@ -417,6 +421,69 @@ function createSdkLogger(runtime: RuntimeEnv, accountId: string): Logger {
 }
 
 // ============================================================================
+// 待发送消息队列处理（重连后重发积压消息）
+// ============================================================================
+
+/**
+ * 处理待发送消息队列
+ * 在 WebSocket 重连认证成功后调用，重发积压的消息
+ */
+async function processPendingQueue(params: {
+  wsClient: WSClient;
+  accountId: string;
+  runtime: RuntimeEnv;
+}): Promise<void> {
+  const { wsClient, accountId, runtime } = params;
+
+  const pendingMessages = getPendingMessages(accountId);
+  if (pendingMessages.length === 0) {
+    return;
+  }
+
+  runtime.log?.(`[WeCom] Processing ${pendingMessages.length} pending message(s) for account ${accountId}`);
+
+  for (const msg of pendingMessages) {
+    try {
+      const { frame, text, finish, streamId } = msg.payload;
+
+      // 检查消息是否过期
+      if (Date.now() - msg.createdAt > 60_000) {
+        runtime.log?.(`[WeCom] Skipping expired pending message: ${msg.id}`);
+        removePendingMessage(accountId, msg.id);
+        continue;
+      }
+
+      // 检查连接状态
+      if (!wsClient.isConnected) {
+        runtime.log?.(`[WeCom] WSClient disconnected while processing pending queue, stopping`);
+        break;
+      }
+
+      // 发送消息
+      await withTimeout(
+        wsClient.replyStream(frame as WsFrame, streamId, text, finish),
+        REPLY_SEND_TIMEOUT_MS,
+        `Pending message send timed out (streamId=${streamId})`,
+      );
+      runtime.log?.(`[WeCom] Sent pending message: ${msg.id}`);
+
+      // 发送成功后从队列中移除
+      removePendingMessage(accountId, msg.id);
+    } catch (err) {
+      runtime.error?.(`[WeCom] Failed to send pending message ${msg.id}: ${String(err)}`);
+      // 发送失败也移除，避免重复尝试
+      removePendingMessage(accountId, msg.id);
+    }
+  }
+
+  // 如果队列已空，清理
+  const remaining = getPendingMessages(accountId);
+  if (remaining.length === 0) {
+    clearPendingMessages(accountId);
+  }
+}
+
+// ============================================================================
 // 主函数
 // ============================================================================
 
@@ -468,6 +535,15 @@ export async function monitorWeComProvider(options: WeComMonitorOptions): Promis
     wsClient.on("authenticated", () => {
       runtime.log?.(`[${account.accountId}] Authentication successful`);
       setWeComWebSocket(account.accountId, wsClient);
+
+      // 处理待发送消息队列（重连后重发积压消息）
+      processPendingQueue({
+        wsClient,
+        accountId: account.accountId,
+        runtime,
+      }).catch((err) => {
+        runtime.error?.(`[${account.accountId}] Failed to process pending queue: ${String(err)}`);
+      });
     });
 
     // 监听断开事件

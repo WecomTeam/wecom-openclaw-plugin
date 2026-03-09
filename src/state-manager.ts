@@ -12,6 +12,8 @@ import {
   MESSAGE_STATE_TTL_MS,
   MESSAGE_STATE_CLEANUP_INTERVAL_MS,
   MESSAGE_STATE_MAX_SIZE,
+  PENDING_QUEUE_MAX_SIZE,
+  PENDING_MESSAGE_TTL_MS,
 } from "./const.js";
 
 // ============================================================================
@@ -40,6 +42,98 @@ export function setWeComWebSocket(accountId: string, client: WSClient): void {
  */
 export function deleteWeComWebSocket(accountId: string): void {
   wsClientInstances.delete(accountId);
+}
+
+// ============================================================================
+// 待发送消息队列（WebSocket 断开时缓存消息，重连后重发）
+// ============================================================================
+
+/** 待发送消息类型 */
+export interface PendingMessage {
+  /** 消息 ID（用于去重和日志） */
+  id: string;
+  /** 账户 ID */
+  accountId: string;
+  /** 消息内容 */
+  payload: {
+    frame: unknown;
+    text: string;
+    finish: boolean;
+    streamId: string;
+  };
+  /** 创建时间戳 */
+  createdAt: number;
+}
+
+/** 待发送消息队列（按 accountId 隔离） */
+const pendingQueues = new Map<string, PendingMessage[]>();
+
+/**
+ * 获取或创建指定账户的待发送队列
+ */
+function getOrCreatePendingQueue(accountId: string): PendingMessage[] {
+  let queue = pendingQueues.get(accountId);
+  if (!queue) {
+    queue = [];
+    pendingQueues.set(accountId, queue);
+  }
+  return queue;
+}
+
+/**
+ * 添加待发送消息到队列
+ * @returns 是否成功添加（false 表示队列已满或消息已过期）
+ */
+export function addPendingMessage(message: PendingMessage): boolean {
+  const queue = getOrCreatePendingQueue(message.accountId);
+
+  // 检查队列容量
+  if (queue.length >= PENDING_QUEUE_MAX_SIZE) {
+    // 移除最旧的消息
+    queue.shift();
+  }
+
+  queue.push(message);
+  return true;
+}
+
+/**
+ * 获取指定账户的待发送队列
+ */
+export function getPendingMessages(accountId: string): PendingMessage[] {
+  const queue = pendingQueues.get(accountId);
+  if (!queue) return [];
+
+  // 过滤过期消息
+  const now = Date.now();
+  const valid = queue.filter((msg) => now - msg.createdAt < PENDING_MESSAGE_TTL_MS);
+
+  // 更新队列（移除过期消息）
+  if (valid.length !== queue.length) {
+    pendingQueues.set(accountId, valid);
+  }
+
+  return valid;
+}
+
+/**
+ * 清空指定账户的待发送队列
+ */
+export function clearPendingMessages(accountId: string): void {
+  pendingQueues.delete(accountId);
+}
+
+/**
+ * 从待发送队列中移除指定消息
+ */
+export function removePendingMessage(accountId: string, messageId: string): void {
+  const queue = pendingQueues.get(accountId);
+  if (!queue) return;
+
+  const index = queue.findIndex((msg) => msg.id === messageId);
+  if (index !== -1) {
+    queue.splice(index, 1);
+  }
 }
 
 // ============================================================================
