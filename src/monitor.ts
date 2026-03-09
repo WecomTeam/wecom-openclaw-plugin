@@ -29,6 +29,7 @@ import {
   MESSAGE_PROCESS_TIMEOUT_MS,
   WS_HEARTBEAT_INTERVAL_MS,
   WS_MAX_RECONNECT_ATTEMPTS,
+  REPLY_SEND_TIMEOUT_MS,
 } from "./const.js";
 import type { WeComMonitorOptions, MessageState } from "./interface.js";
 import { parseMessageContent, type MessageBody } from "./message-parser.js";
@@ -45,7 +46,13 @@ import {
   startMessageStateCleanup,
   stopMessageStateCleanup,
   cleanupAccount,
+  getPendingMessages,
+  clearPendingMessages,
+  removePendingMessage,
+  isProcessingQueue,
+  setProcessingQueue,
 } from "./state-manager.js";
+import { PENDING_MESSAGE_TTL_MS } from "./const.js";
 import { withTimeout } from "./timeout.js";
 
 // ============================================================================
@@ -163,8 +170,9 @@ async function sendThinkingReply(params: {
   frame: WsFrame;
   streamId: string;
   runtime: RuntimeEnv;
+  accountId: string;
 }): Promise<void> {
-  const { wsClient, frame, streamId, runtime } = params;
+  const { wsClient, frame, streamId, runtime, accountId } = params;
   runtime.log?.(`[WeCom] Sending thinking message`);
   try {
     await sendWeComReply({
@@ -174,6 +182,7 @@ async function sendThinkingReply(params: {
       runtime,
       finish: false,
       streamId,
+      accountId,
     });
   } catch (err) {
     runtime.error?.(`[WeCom] Failed to send thinking message: ${String(err)}`);
@@ -190,9 +199,10 @@ async function routeAndDispatchMessage(params: {
   frame: WsFrame;
   state: MessageState;
   runtime: RuntimeEnv;
+  accountId: string;
   onCleanup: () => void;
 }): Promise<void> {
-  const { ctxPayload, config, wsClient, frame, state, runtime, onCleanup } = params;
+  const { ctxPayload, config, wsClient, frame, state, runtime, accountId, onCleanup } = params;
   const core = getWeComRuntime();
 
   // 防止 onCleanup 被多次调用（onError 回调与 catch 块可能重复触发）
@@ -220,6 +230,7 @@ async function routeAndDispatchMessage(params: {
               runtime,
               finish: false,
               streamId: state.streamId,
+              accountId,
             });
           }
         },
@@ -239,6 +250,7 @@ async function routeAndDispatchMessage(params: {
         runtime,
         finish: true,
         streamId: state.streamId,
+        accountId,
       });
     }
 
@@ -366,7 +378,7 @@ async function processWeComMessage(params: {
   // Step 6: 发送"思考中"消息
   const shouldSendThinking = account.sendThinkingMessage ?? true;
   if (shouldSendThinking) {
-    await sendThinkingReply({ wsClient, frame, streamId, runtime });
+    await sendThinkingReply({ wsClient, frame, streamId, runtime, accountId: account.accountId });
   }
 
   // Step 7: 构建上下文并路由到核心处理流程（带整体超时保护）
@@ -381,6 +393,7 @@ async function processWeComMessage(params: {
         frame,
         state,
         runtime,
+        accountId: account.accountId,
         onCleanup: cleanupState,
       }),
       MESSAGE_PROCESS_TIMEOUT_MS,
@@ -414,6 +427,75 @@ function createSdkLogger(runtime: RuntimeEnv, accountId: string): Logger {
       runtime.error?.(`[${accountId}] ${message}`, ...args);
     },
   };
+}
+
+// ============================================================================
+// 待发送消息队列处理（重连后重发积压消息）
+// ============================================================================
+
+/**
+ * 处理待发送消息队列
+ * 在 WebSocket 重连认证成功后调用，重发积压的消息
+ */
+async function processPendingQueue(params: {
+  wsClient: WSClient;
+  accountId: string;
+  runtime: RuntimeEnv;
+}): Promise<void> {
+  const { wsClient, accountId, runtime } = params;
+
+  // 防止并发处理同一账户的队列
+  if (isProcessingQueue(accountId)) {
+    runtime.log?.(`[WeCom] Pending queue already being processed for account ${accountId}`);
+    return;
+  }
+
+  // 使用快照数组遍历，避免遍历期间修改数组
+  const pendingMessages = [...getPendingMessages(accountId)];
+  if (pendingMessages.length === 0) {
+    return;
+  }
+
+  setProcessingQueue(accountId, true);
+
+  try {
+    runtime.log?.(`[WeCom] Processing ${pendingMessages.length} pending message(s) for account ${accountId}`);
+
+    for (const msg of pendingMessages) {
+      // 检查消息是否过期
+      if (Date.now() - msg.createdAt > PENDING_MESSAGE_TTL_MS) {
+        runtime.log?.(`[WeCom] Skipping expired pending message: ${msg.id}`);
+        removePendingMessage(accountId, msg.id);
+        continue;
+      }
+
+      // 检查连接状态
+      if (!wsClient.isConnected) {
+        runtime.log?.(`[WeCom] WSClient disconnected while processing pending queue, stopping`);
+        break;
+      }
+
+      try {
+        const { frame, text, finish, streamId } = msg.payload;
+
+        // 发送消息
+        await withTimeout(
+          wsClient.replyStream(frame, streamId, text, finish),
+          REPLY_SEND_TIMEOUT_MS,
+          `Pending message send timed out (streamId=${streamId})`,
+        );
+        runtime.log?.(`[WeCom] Sent pending message: ${msg.id}`);
+
+        // 发送成功后从队列中移除
+        removePendingMessage(accountId, msg.id);
+      } catch (err) {
+        // 发送失败时不移除，由后续重连或 TTL 过期处理
+        runtime.error?.(`[WeCom] Failed to send pending message ${msg.id}: ${String(err)}`);
+      }
+    }
+  } finally {
+    setProcessingQueue(accountId, false);
+  }
 }
 
 // ============================================================================
@@ -468,6 +550,15 @@ export async function monitorWeComProvider(options: WeComMonitorOptions): Promis
     wsClient.on("authenticated", () => {
       runtime.log?.(`[${account.accountId}] Authentication successful`);
       setWeComWebSocket(account.accountId, wsClient);
+
+      // 处理待发送消息队列（重连后重发积压消息）
+      processPendingQueue({
+        wsClient,
+        accountId: account.accountId,
+        runtime,
+      }).catch((err) => {
+        runtime.error?.(`[${account.accountId}] Failed to process pending queue: ${String(err)}`);
+      });
     });
 
     // 监听断开事件

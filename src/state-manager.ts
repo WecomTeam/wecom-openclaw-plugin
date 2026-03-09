@@ -5,13 +5,15 @@
  * 解决全局 Map 的内存泄漏问题
  */
 
-import type { WSClient } from "@wecom/aibot-node-sdk";
+import type { WSClient, WsFrame } from "@wecom/aibot-node-sdk";
 import type { MessageState } from "./interface.js";
 import { createPersistentReqIdStore, type PersistentReqIdStore } from "./reqid-store.js";
 import {
   MESSAGE_STATE_TTL_MS,
   MESSAGE_STATE_CLEANUP_INTERVAL_MS,
   MESSAGE_STATE_MAX_SIZE,
+  PENDING_QUEUE_MAX_SIZE,
+  PENDING_MESSAGE_TTL_MS,
 } from "./const.js";
 
 // ============================================================================
@@ -40,6 +42,118 @@ export function setWeComWebSocket(accountId: string, client: WSClient): void {
  */
 export function deleteWeComWebSocket(accountId: string): void {
   wsClientInstances.delete(accountId);
+}
+
+// ============================================================================
+// 待发送消息队列（WebSocket 断开时缓存消息，重连后重发）
+// ============================================================================
+
+/** 待发送消息类型 */
+export interface PendingMessage {
+  /** 消息 ID（用于日志和定位） */
+  id: string;
+  /** 账户 ID */
+  accountId: string;
+  /** 消息内容 */
+  payload: {
+    frame: WsFrame;
+    text: string;
+    finish: boolean;
+    streamId: string;
+  };
+  /** 创建时间戳 */
+  createdAt: number;
+}
+
+/** 待发送消息队列（按 accountId 隔离） */
+const pendingQueues = new Map<string, PendingMessage[]>();
+
+/** 正在处理队列的账户集合（防止并发处理） */
+const processingAccounts = new Set<string>();
+
+/**
+ * 获取或创建指定账户的待发送队列
+ */
+function getOrCreatePendingQueue(accountId: string): PendingMessage[] {
+  let queue = pendingQueues.get(accountId);
+  if (!queue) {
+    queue = [];
+    pendingQueues.set(accountId, queue);
+  }
+  return queue;
+}
+
+/**
+ * 添加待发送消息到队列
+ * 若队列已满，会先移除最旧的一条消息，再推入新消息；当前实现始终成功入队
+ */
+export function addPendingMessage(message: PendingMessage): void {
+  const queue = getOrCreatePendingQueue(message.accountId);
+
+  // 检查队列容量
+  if (queue.length >= PENDING_QUEUE_MAX_SIZE) {
+    // 移除最旧的消息
+    queue.shift();
+  }
+
+  queue.push(message);
+}
+
+/**
+ * 获取指定账户的待发送队列
+ */
+export function getPendingMessages(accountId: string): PendingMessage[] {
+  const queue = pendingQueues.get(accountId);
+  if (!queue) return [];
+
+  // 过滤过期消息
+  const now = Date.now();
+  const valid = queue.filter((msg) => now - msg.createdAt < PENDING_MESSAGE_TTL_MS);
+
+  // 更新队列（移除过期消息）
+  if (valid.length !== queue.length) {
+    pendingQueues.set(accountId, valid);
+  }
+
+  return valid;
+}
+
+/**
+ * 清空指定账户的待发送队列
+ */
+export function clearPendingMessages(accountId: string): void {
+  pendingQueues.delete(accountId);
+}
+
+/**
+ * 检查账户是否正在处理队列
+ */
+export function isProcessingQueue(accountId: string): boolean {
+  return processingAccounts.has(accountId);
+}
+
+/**
+ * 设置账户队列处理状态
+ */
+export function setProcessingQueue(accountId: string, processing: boolean): void {
+  if (processing) {
+    processingAccounts.add(accountId);
+  } else {
+    processingAccounts.delete(accountId);
+  }
+}
+
+/**
+ * 从待发送队列中移除指定消息
+ */
+export function removePendingMessage(accountId: string, messageId: string): void {
+  const queue = pendingQueues.get(accountId);
+  if (!queue) return;
+
+  const index = queue.findIndex((msg) => msg.id === messageId);
+  if (index !== -1) {
+    queue.splice(index, 1);
+  }
 }
 
 // ============================================================================
@@ -250,6 +364,10 @@ export async function cleanupAccount(accountId: string): Promise<void> {
     }
     // 注意：不删除 store，因为重连后可能还需要
   }
+
+  // 3. 清理待发送消息队列
+  clearPendingMessages(accountId);
+  processingAccounts.delete(accountId);
 }
 
 /**
@@ -280,4 +398,8 @@ export async function cleanupAll(): Promise<void> {
 
   // 清空消息状态
   clearAllMessageStates();
+
+  // 清空待发送消息队列
+  pendingQueues.clear();
+  processingAccounts.clear();
 }
