@@ -6,7 +6,7 @@
 
 import type { OpenClawConfig, RuntimeEnv } from "openclaw/plugin-sdk";
 import { CHANNEL_ID } from "./const.js";
-import type { ResolvedWeComAccount, WeComConfig, WeComGroupConfig } from "./utils.js";
+import type { ResolvedWeComAccount, WeComAccountConfig, WeComGroupConfig } from "./utils.js";
 
 // ============================================================================
 // 检查结果类型
@@ -28,7 +28,7 @@ export interface GroupPolicyCheckResult {
  * 解析企业微信群组配置
  */
 function resolveWeComGroupConfig(params: {
-  cfg?: WeComConfig;
+  cfg?: WeComAccountConfig;
   groupId?: string | null;
 }): WeComGroupConfig | undefined {
   const groups = params.cfg?.groups ?? {};
@@ -85,7 +85,7 @@ function isWeComGroupAllowed(params: {
 function isGroupSenderAllowed(params: {
   senderId: string;
   groupId: string;
-  wecomConfig: WeComConfig;
+  wecomConfig: WeComAccountConfig;
 }): boolean {
   const { senderId, groupId, wecomConfig } = params;
 
@@ -126,24 +126,12 @@ export function checkGroupPolicy(params: {
   runtime: RuntimeEnv;
 }): GroupPolicyCheckResult {
   const { chatId, senderId, account, config, runtime } = params;
-  const wecomConfig = (config.channels?.[CHANNEL_ID] ?? {}) as WeComConfig;
+  const accountConfig = account.config;
 
-  const defaultGroupPolicy = config.channels?.[CHANNEL_ID]?.groupPolicy;
-  const groupPolicy = account.config.groupPolicy ?? defaultGroupPolicy ?? "open"
-  // const { groupPolicy, providerMissingFallbackApplied } = resolveOpenProviderRuntimeGroupPolicy({
-  //   providerConfigPresent: config.channels?.[CHANNEL_ID] !== undefined,
-  //   groupPolicy: wecomConfig.groupPolicy,
-  //   defaultGroupPolicy,
-  // });
+  const defaultGroupPolicy = config.channels?.defaults?.groupPolicy;
+  const groupPolicy = accountConfig.groupPolicy ?? defaultGroupPolicy ?? "open";
 
-  // warnMissingProviderGroupPolicyFallbackOnce({
-  //   providerMissingFallbackApplied,
-  //   providerKey: CHANNEL_ID,
-  //   accountId: account.accountId,
-  //   log: (msg) => runtime.log?.(msg),
-  // });
-
-  const groupAllowFrom = wecomConfig.groupAllowFrom ?? [];
+  const groupAllowFrom = accountConfig.groupAllowFrom ?? [];
   const groupAllowed = isWeComGroupAllowed({
     groupPolicy,
     allowFrom: groupAllowFrom,
@@ -160,7 +148,7 @@ export function checkGroupPolicy(params: {
   const senderAllowed = isGroupSenderAllowed({
     senderId,
     groupId: chatId,
-    wecomConfig,
+    wecomConfig: accountConfig,
   });
 
   if (!senderAllowed) {

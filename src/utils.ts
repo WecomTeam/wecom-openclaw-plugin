@@ -2,7 +2,12 @@
  * 企业微信公共工具函数
  */
 
-import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
+import {
+  DEFAULT_ACCOUNT_ID,
+  normalizeAccountId,
+  listConfiguredAccountIds as listConfiguredAccountIdsFromSection,
+  resolveAccountWithDefaultFallback,
+} from "openclaw/plugin-sdk";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { CHANNEL_ID } from "./const.js";
 
@@ -19,9 +24,9 @@ export interface WeComGroupConfig {
 }
 
 /**
- * 企业微信配置类型
+ * 企业微信单账户配置（可作为 channel 基础配置或 accounts 子项）
  */
-export interface WeComConfig {
+export interface WeComAccountConfig {
   enabled?: boolean;
   websocketUrl?: string;
   botId?: string;
@@ -39,6 +44,16 @@ export interface WeComConfig {
   sendThinkingMessage?: boolean;
 }
 
+/**
+ * 企业微信 channel 配置（支持多账户）
+ */
+export type WeComConfig = {
+  /** 多账户配置 */
+  accounts?: Record<string, WeComAccountConfig>;
+  /** 多账户时的默认账户 ID */
+  defaultAccount?: string;
+} & WeComAccountConfig;
+
 export const DefaultWsUrl = "wss://openws.work.weixin.qq.com";
 
 export interface ResolvedWeComAccount {
@@ -50,42 +65,166 @@ export interface ResolvedWeComAccount {
   secret: string;
   /** 是否发送"思考中"消息，默认为 true */
   sendThinkingMessage: boolean;
-  config: WeComConfig;
+  config: WeComAccountConfig;
 }
 
+// ============================================================================
+// 多账户解析
+// ============================================================================
+
 /**
- * 解析企业微信账户配置
+ * 列出所有已配置的 account ID
  */
-export function resolveWeComAccount(cfg: OpenClawConfig): ResolvedWeComAccount {
+export function listWeComAccountIds(cfg: OpenClawConfig): string[] {
   const wecomConfig = (cfg.channels?.[CHANNEL_ID] ?? {}) as WeComConfig;
-
-  return {
-    accountId: DEFAULT_ACCOUNT_ID,
-    name: wecomConfig.name ?? "企业微信",
-    enabled: wecomConfig.enabled ?? false,
-    websocketUrl: wecomConfig.websocketUrl || DefaultWsUrl,
-    botId: wecomConfig.botId ?? "",
-    secret: wecomConfig.secret ?? "",
-    sendThinkingMessage: wecomConfig.sendThinkingMessage ?? true,
-    config: wecomConfig,
-  };
+  const ids = listConfiguredAccountIdsFromSection({
+    accounts: wecomConfig.accounts,
+    normalizeAccountId,
+  });
+  if (ids.length === 0) {
+    return [DEFAULT_ACCOUNT_ID];
+  }
+  return ids.toSorted((a, b) => a.localeCompare(b));
 }
 
 /**
- * 设置企业微信账户配置
+ * 解析默认 account ID
+ */
+export function resolveDefaultWeComAccountId(cfg: OpenClawConfig): string {
+  const wecomConfig = (cfg.channels?.[CHANNEL_ID] ?? {}) as WeComConfig;
+  if (wecomConfig.defaultAccount) {
+    const preferred = normalizeAccountId(wecomConfig.defaultAccount);
+    const ids = listWeComAccountIds(cfg);
+    if (ids.some((id) => normalizeAccountId(id) === preferred)) {
+      return preferred;
+    }
+  }
+  const ids = listWeComAccountIds(cfg);
+  if (ids.includes(DEFAULT_ACCOUNT_ID)) {
+    return DEFAULT_ACCOUNT_ID;
+  }
+  return ids[0] ?? DEFAULT_ACCOUNT_ID;
+}
+
+/**
+ * 合并 channel 级别基础配置与 account 级别配置
+ */
+function mergeWeComAccountConfig(
+  cfg: OpenClawConfig,
+  accountId: string,
+): WeComAccountConfig {
+  const wecomConfig = (cfg.channels?.[CHANNEL_ID] ?? {}) as WeComConfig;
+  const {
+    accounts: _ignored,
+    defaultAccount: _ignoredDefault,
+    groups: channelGroups,
+    ...base
+  } = wecomConfig;
+
+  const normalized = normalizeAccountId(accountId);
+  const accountConfig = wecomConfig.accounts?.[normalized] ??
+    Object.entries(wecomConfig.accounts ?? {}).find(
+      ([key]) => normalizeAccountId(key) === normalized,
+    )?.[1] ?? {};
+
+  // 多账户时，channel 级别的 groups 不继承到没有自己 groups 的 account
+  const configuredAccountIds = Object.keys(wecomConfig.accounts ?? {});
+  const isMultiAccount = configuredAccountIds.length > 1;
+  const groups = accountConfig.groups ?? (isMultiAccount ? undefined : channelGroups);
+
+  return { ...base, ...accountConfig, groups };
+}
+
+/**
+ * 解析企业微信账户配置（支持多账户）
+ */
+export function resolveWeComAccount(
+  cfg: OpenClawConfig,
+  accountId?: string | null,
+): ResolvedWeComAccount {
+  const baseEnabled = (cfg.channels?.[CHANNEL_ID] as WeComConfig)?.enabled !== false;
+
+  const resolve = (id: string): ResolvedWeComAccount => {
+    const merged = mergeWeComAccountConfig(cfg, id);
+    const accountEnabled = merged.enabled !== false;
+    const enabled = baseEnabled && accountEnabled;
+
+    return {
+      accountId: id,
+      name: merged.name ?? "企业微信",
+      enabled,
+      websocketUrl: merged.websocketUrl || DefaultWsUrl,
+      botId: merged.botId ?? "",
+      secret: merged.secret ?? "",
+      sendThinkingMessage: merged.sendThinkingMessage ?? true,
+      config: merged,
+    };
+  };
+
+  return resolveAccountWithDefaultFallback({
+    accountId,
+    normalizeAccountId,
+    resolvePrimary: resolve,
+    hasCredential: (account) => Boolean(account.botId?.trim() && account.secret?.trim()),
+    resolveDefaultAccountId: () => resolveDefaultWeComAccountId(cfg),
+  });
+}
+
+/**
+ * 列出所有已启用的账户
+ */
+export function listEnabledWeComAccounts(cfg: OpenClawConfig): ResolvedWeComAccount[] {
+  return listWeComAccountIds(cfg)
+    .map((id) => resolveWeComAccount(cfg, id))
+    .filter((account) => account.enabled);
+}
+
+// ============================================================================
+// 配置写入
+// ============================================================================
+
+/**
+ * 设置企业微信账户配置（向后兼容单账户模式）
  */
 export function setWeComAccount(
   cfg: OpenClawConfig,
-  account: Partial<WeComConfig>,
+  account: Partial<WeComAccountConfig>,
+  accountId?: string,
 ): OpenClawConfig {
-  const existing = (cfg.channels?.[CHANNEL_ID] ?? {}) as WeComConfig;
-  const merged: WeComConfig = {
+  const wecomConfig = (cfg.channels?.[CHANNEL_ID] ?? {}) as WeComConfig;
+  const hasMultiAccounts = wecomConfig.accounts && Object.keys(wecomConfig.accounts).length > 0;
+  const targetAccountId = accountId ? normalizeAccountId(accountId) : undefined;
+
+  // 多账户模式：写入到 accounts[accountId]
+  if (hasMultiAccounts && targetAccountId) {
+    const existingAccount = wecomConfig.accounts?.[targetAccountId] ?? {};
+    const merged: WeComAccountConfig = {
+      ...existingAccount,
+      ...filterUndefined(account),
+    };
+    return {
+      ...cfg,
+      channels: {
+        ...cfg.channels,
+        [CHANNEL_ID]: {
+          ...wecomConfig,
+          accounts: {
+            ...wecomConfig.accounts,
+            [targetAccountId]: merged,
+          },
+        },
+      },
+    };
+  }
+
+  // 单账户模式：写入到 channel 顶层
+  const existing = wecomConfig;
+  const merged: WeComAccountConfig = {
     enabled: account.enabled ?? existing?.enabled ?? true,
     botId: account.botId ?? existing?.botId ?? "",
     secret: account.secret ?? existing?.secret ?? "",
     allowFrom: account.allowFrom ?? existing?.allowFrom,
     dmPolicy: account.dmPolicy ?? existing?.dmPolicy,
-    // 以下字段仅在已有配置值或显式传入时才写入，onboarding 时不主动生成
     ...(account.websocketUrl || existing?.websocketUrl
       ? { websocketUrl: account.websocketUrl ?? existing?.websocketUrl }
       : {}),
@@ -97,11 +236,27 @@ export function setWeComAccount(
       : {}),
   };
 
-return {
+  return {
     ...cfg,
     channels: {
       ...cfg.channels,
-      [CHANNEL_ID]: merged,
+      [CHANNEL_ID]: {
+        ...wecomConfig,
+        // Preserve accounts and defaultAccount if they exist
+        ...(wecomConfig.accounts ? { accounts: wecomConfig.accounts } : {}),
+        ...(wecomConfig.defaultAccount ? { defaultAccount: wecomConfig.defaultAccount } : {}),
+        ...merged,
+      },
     },
   };
+}
+
+function filterUndefined<T extends Record<string, unknown>>(obj: T): Partial<T> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      result[key] = value;
+    }
+  }
+  return result as Partial<T>;
 }
