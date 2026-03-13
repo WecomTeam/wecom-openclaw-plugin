@@ -36,6 +36,7 @@ import { sendWeComReply } from "./message-sender.js";
 import { downloadAndSaveImages, downloadAndSaveFiles } from "./media-handler.js";
 import { checkGroupPolicy } from "./group-policy.js";
 import { checkDmPolicy } from "./dm-policy.js";
+import { maybeCreateDynamicAgent } from "./dynamic-agent.js";
 import {
   setWeComWebSocket,
   setMessageState,
@@ -71,14 +72,19 @@ export { sendWeComReply } from "./message-sender.js";
 
 /**
  * 构建消息上下文
+ *
+ * 若配置了 dynamicAgentCreation.enabled，对私聊消息自动创建隔离 agent：
+ * - 首次出现的 peerId → 创建专属 agent + binding，写入配置文件
+ * - 同时更新内存中的 config，确保同进程内后续消息立即生效
  */
-function buildMessageContext(
+async function buildMessageContext(
   frame: WsFrame,
   account: ResolvedWeComAccount,
   config: OpenClawConfig,
   text: string,
   mediaList: Array<{ path: string; contentType?: string }>,
-  quoteContent?: string
+  quoteContent?: string,
+  runtime?: RuntimeEnv
 ) {
   const core = getWeComRuntime();
   const body = frame.body as MessageBody;
@@ -86,7 +92,7 @@ function buildMessageContext(
   const chatType = body.chattype === "group" ? "group" : "direct";
 
   // 解析路由信息
-  const route = core.channel.routing.resolveAgentRoute({
+  let route = core.channel.routing.resolveAgentRoute({
     cfg: config,
     channel: CHANNEL_ID,
     accountId: account.accountId,
@@ -95,6 +101,35 @@ function buildMessageContext(
       id: chatId,
     },
   });
+
+  // 动态 agent 创建：私聊和群聊均支持，当前路由走默认 agent 时触发
+  if (route.matchedBy === "default") {
+    const wecomCfg = (config.channels?.[CHANNEL_ID] ?? {}) as { dynamicAgentCreation?: import("./utils.js").DynamicAgentCreationConfig };
+    const dynamicCfg = wecomCfg.dynamicAgentCreation;
+    if (dynamicCfg?.enabled) {
+      const result = await maybeCreateDynamicAgent({
+        cfg: config,
+        peerId: chatId,
+        peerKind: chatType,
+        dynamicCfg,
+        log: (msg) => runtime?.log?.(msg),
+      });
+      if (result.created && result.updatedCfg) {
+        // 将更新同步到内存中的 config 对象，确保本进程内后续消息立即使用新 binding
+        Object.assign(config, result.updatedCfg);
+        // 用更新后的配置重新解析路由
+        route = core.channel.routing.resolveAgentRoute({
+          cfg: result.updatedCfg,
+          channel: CHANNEL_ID,
+          accountId: account.accountId,
+          peer: { kind: chatType, id: chatId },
+        });
+        runtime?.log?.(
+          `[WeCom] dynamicAgent: new route for peer ${chatId}: agentId=${route.agentId} sessionKey=${route.sessionKey}`,
+        );
+      }
+    }
+  }
 
   // 构建会话标签
   const fromLabel = chatType === "group" ? `group:${chatId}` : `user:${body.from.userid}`;
@@ -370,7 +405,7 @@ async function processWeComMessage(params: {
   }
 
   // Step 7: 构建上下文并路由到核心处理流程（带整体超时保护）
-  const ctxPayload = buildMessageContext(frame, account, config, text, mediaList, quoteContent);
+  const ctxPayload = await buildMessageContext(frame, account, config, text, mediaList, quoteContent, runtime);
 
   try {
     await withTimeout(

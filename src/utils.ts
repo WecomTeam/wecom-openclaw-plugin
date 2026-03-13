@@ -19,6 +19,21 @@ export interface WeComGroupConfig {
 }
 
 /**
+ * 动态 Agent 创建配置
+ * 开启后，每个新的私聊用户自动创建独立 agent（独立 workspace + agentDir）
+ */
+export interface DynamicAgentCreationConfig {
+  /** 是否启用动态 agent 创建，默认 false */
+  enabled?: boolean;
+  /** workspace 路径模板，支持 {peerId} / {agentId} 占位符，默认 ~/.openclaw/agents/wecom-{peerId}/workspace */
+  workspaceTemplate?: string;
+  /** agentDir 路径模板，支持 {peerId} / {agentId} 占位符，默认 ~/.openclaw/agents/wecom-{peerId}/agent */
+  agentDirTemplate?: string;
+  /** 最多创建多少个动态 agent（wecom- 前缀），超出后新用户共用默认 agent */
+  maxAgents?: number;
+}
+
+/**
  * 企业微信配置类型
  */
 export interface WeComConfig {
@@ -37,6 +52,8 @@ export interface WeComConfig {
   groups?: Record<string, WeComGroupConfig>;
   /** 是否发送"思考中"消息，默认为 true */
   sendThinkingMessage?: boolean;
+  /** 动态 agent 创建配置：为每个新私聊用户自动创建隔离 agent */
+  dynamicAgentCreation?: DynamicAgentCreationConfig;
 }
 
 export const DefaultWsUrl = "wss://openws.work.weixin.qq.com";
