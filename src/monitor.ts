@@ -102,8 +102,8 @@ async function buildMessageContext(
     },
   });
 
-  // 动态 agent 创建：仅对私聊且当前路由走默认 agent 时触发
-  if (chatType === "direct" && route.matchedBy === "default") {
+  // 动态 agent 创建：私聊和群聊均支持，当前路由走默认 agent 时触发
+  if (route.matchedBy === "default") {
     const wecomCfg = (config.channels?.[CHANNEL_ID] ?? {}) as { dynamicAgentCreation?: import("./utils.js").DynamicAgentCreationConfig };
     const dynamicCfg = wecomCfg.dynamicAgentCreation;
     if (dynamicCfg?.enabled) {
