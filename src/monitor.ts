@@ -643,6 +643,7 @@ function createSdkLogger(runtime: RuntimeEnv, accountId: string): Logger {
  */
 export async function monitorWeComProvider(options: WeComMonitorOptions): Promise<void> {
   const { account, config, runtime, abortSignal } = options;
+  const EVENT_RECONNECT_COOLDOWN_MS = 5_000;
 
   runtime.log?.(`[${account.accountId}] Initializing WSClient with SDK...`);
 
@@ -651,6 +652,8 @@ export async function monitorWeComProvider(options: WeComMonitorOptions): Promis
 
   return new Promise((resolve, reject) => {
     const logger = createSdkLogger(runtime, account.accountId);
+    let lastEventReconnectAt = 0;
+    let eventReconnectTimer: NodeJS.Timeout | null = null;
 
     const wsClient = new WSClient({
       botId: account.botId,
@@ -663,8 +666,41 @@ export async function monitorWeComProvider(options: WeComMonitorOptions): Promis
 
     // 清理函数：确保所有资源被释放
     const cleanup = async () => {
+      if (eventReconnectTimer) {
+        clearTimeout(eventReconnectTimer);
+        eventReconnectTimer = null;
+      }
       stopMessageStateCleanup();
       await cleanupAccount(account.accountId);
+    };
+
+    const scheduleReconnectForDisconnectedEvent = () => {
+      if (eventReconnectTimer) {
+        runtime.log?.(`[${account.accountId}] disconnected_event reconnect already scheduled`);
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastEventReconnectAt < EVENT_RECONNECT_COOLDOWN_MS) {
+        runtime.log?.(
+          `[${account.accountId}] disconnected_event reconnect suppressed by cooldown (${EVENT_RECONNECT_COOLDOWN_MS}ms)`,
+        );
+        return;
+      }
+
+      lastEventReconnectAt = now;
+      eventReconnectTimer = setTimeout(() => {
+        eventReconnectTimer = null;
+        runtime.log?.(`[${account.accountId}] forcing reconnect after disconnected_event`);
+        try {
+          wsClient.connect();
+        } catch (err) {
+          runtime.error?.(
+            `[${account.accountId}] forced reconnect after disconnected_event failed: ${String(err)}`,
+          );
+        }
+      }, 0);
+      eventReconnectTimer.unref?.();
     };
 
     // 处理中止信号
@@ -711,6 +747,14 @@ export async function monitorWeComProvider(options: WeComMonitorOptions): Promis
 
     // 监听所有消息
     wsClient.on("message", async (frame: WsFrame) => {
+      const eventType = String((frame.body as { event?: { eventtype?: string } } | undefined)?.event?.eventtype ?? "")
+        .trim()
+        .toLowerCase();
+      if (frame.cmd === "aibot_event_callback" && eventType === "disconnected_event") {
+        runtime.log?.(`[${account.accountId}] received disconnected_event from wecom ws server`);
+        scheduleReconnectForDisconnectedEvent();
+        return;
+      }
       try {
         await processWeComMessage({
           frame,
