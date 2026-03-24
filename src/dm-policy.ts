@@ -64,15 +64,9 @@ export async function checkDmPolicy(params: {
     return { allowed: true };
   }
 
-  // OpenClaw <= 2026.2.19 signature: readAllowFromStore(channel, env?, accountId?)
-  const oldStoreAllowFrom = await core.channel.pairing.readAllowFromStore('wecom', undefined, account.accountId).catch(() => []);;
-  // Compatibility fallback for newer OpenClaw implementations.
-  const newStoreAllowFrom = await core.channel.pairing
-      .readAllowFromStore({ channel: CHANNEL_ID, accountId: account.accountId })
-      .catch(() => []);
-
-  // 检查发送者是否在允许列表中
-  const storeAllowFrom = [...oldStoreAllowFrom, ...newStoreAllowFrom];
+  const storeAllowFrom = await core.channel.pairing
+    .readAllowFromStore({ channel: CHANNEL_ID, accountId: account.accountId })
+    .catch(() => []);
 
   const effectiveAllowFrom = [...configAllowFrom, ...storeAllowFrom];
   const senderAllowedResult = isSenderAllowed(senderId, effectiveAllowFrom);

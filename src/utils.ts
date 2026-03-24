@@ -2,8 +2,8 @@
  * 企业微信公共工具函数
  */
 
-import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk/core";
 import { CHANNEL_ID } from "./const.js";
 
 // ============================================================================

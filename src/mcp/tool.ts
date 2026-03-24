@@ -15,6 +15,7 @@
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { sendJsonRpc, clearCategoryCache, MEDIA_DOWNLOAD_TIMEOUT_MS, type McpToolInfo } from "./transport.js";
 import { cleanSchemaForGemini } from "./schema.js";
 import { getWeComRuntime } from "../runtime.js";
@@ -41,8 +42,9 @@ interface WeComToolsParams {
 // ============================================================================
 
 /** 构造统一的文本响应结构 */
-const textResult = (data: unknown) => ({
+const textResult = (data: unknown): AgentToolResult<unknown> => ({
   content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+  details: data,
 });
 
 /** 构造错误响应 */

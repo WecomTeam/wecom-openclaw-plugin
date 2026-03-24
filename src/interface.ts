@@ -2,7 +2,7 @@
  * 企业微信渠道类型定义
  */
 
-import type { OpenClawConfig, RuntimeEnv } from "openclaw/plugin-sdk";
+import type { ChannelAccountSnapshot, OpenClawConfig, RuntimeEnv } from "openclaw/plugin-sdk";
 import type { ResolvedWeComAccount } from "./utils.js";
 import { WeComCommand } from "./const.js";
 
@@ -19,7 +19,7 @@ export type WeComMonitorOptions = {
   runtime: RuntimeEnv;
   abortSignal?: AbortSignal;
   /** 框架层提供的状态更新回调，用于在致命错误场景中标记 channel 已停止 */
-  setStatus?: (next: Record<string, unknown>) => void;
+  setStatus?: (next: ChannelAccountSnapshot) => void;
 };
 
 // ============================================================================

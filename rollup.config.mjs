@@ -6,7 +6,7 @@ import { dts } from "rollup-plugin-dts";
 
 // 外部依赖，不打包进 bundle
 const external = [
-  "openclaw/plugin-sdk",
+  /^openclaw\/plugin-sdk(?:\/.*)?$/,
   "@tencent/aibot-node-sdk",
   "@wecom/aibot-node-sdk",
   "file-type",

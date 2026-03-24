@@ -3,12 +3,11 @@
  */
 
 import {
-  addWildcardAllowFrom,
-  type ChannelOnboardingAdapter,
-  type ChannelOnboardingDmPolicy,
   type OpenClawConfig,
   type WizardPrompter,
 } from "openclaw/plugin-sdk";
+import type { ChannelSetupDmPolicy, ChannelSetupWizardAdapter } from "openclaw/plugin-sdk/setup";
+import { addWildcardAllowFrom } from "openclaw/plugin-sdk/setup";
 import type { ResolvedWeComAccount } from "./utils.js";
 import { resolveWeComAccount, setWeComAccount } from "./utils.js";
 import { CHANNEL_ID } from "./const.js";
@@ -72,7 +71,7 @@ function setWeComDmPolicy(
   const existingAllowFrom = account.config.allowFrom ?? [];
   const allowFrom =
     dmPolicy === "open"
-      ? addWildcardAllowFrom(existingAllowFrom.map((x) => String(x)))
+      ? addWildcardAllowFrom(existingAllowFrom)
       : existingAllowFrom.map((x) => String(x));
 
   return setWeComAccount(cfg, {
@@ -81,19 +80,19 @@ function setWeComDmPolicy(
   });
 }
 
-const dmPolicy: ChannelOnboardingDmPolicy = {
+const dmPolicy = {
   label: "企业微信",
   channel,
   policyKey: `channels.${CHANNEL_ID}.dmPolicy`,
   allowFromKey: `channels.${CHANNEL_ID}.allowFrom`,
-  getCurrent: (cfg) => {
+  getCurrent: (cfg: OpenClawConfig) => {
     const account = resolveWeComAccount(cfg);
     return account.config.dmPolicy ?? "open";
   },
-  setPolicy: (cfg, policy) => {
+  setPolicy: (cfg: OpenClawConfig, policy: "pairing" | "allowlist" | "open" | "disabled") => {
     return setWeComDmPolicy(cfg, policy);
   },
-  promptAllowFrom: async ({cfg, prompter}) => {
+  promptAllowFrom: async ({cfg, prompter}: { cfg: OpenClawConfig; prompter: WizardPrompter; accountId?: string }) => {
     const account = resolveWeComAccount(cfg);
     const existingAllowFrom = account.config.allowFrom ?? [];
 
@@ -110,11 +109,11 @@ const dmPolicy: ChannelOnboardingDmPolicy = {
 
     return setWeComAccount(cfg, {allowFrom});
   },
-};
+} satisfies ChannelSetupDmPolicy;
 
-export const wecomOnboardingAdapter: ChannelOnboardingAdapter = {
+const wecomOnboardingAdapterRaw = {
   channel,
-  getStatus: async ({cfg}) => {
+  getStatus: async ({cfg}: { cfg: OpenClawConfig }) => {
     const account = resolveWeComAccount(cfg);
     const configured = Boolean(
       account.botId?.trim() &&
@@ -128,7 +127,15 @@ export const wecomOnboardingAdapter: ChannelOnboardingAdapter = {
       selectionHint: configured ? "已配置" : "需要设置",
     };
   },
-  configure: async ({cfg, prompter, forceAllowFrom}) => {
+  configure: async ({
+    cfg,
+    prompter,
+    forceAllowFrom,
+  }: {
+    cfg: OpenClawConfig;
+    prompter: WizardPrompter;
+    forceAllowFrom: boolean;
+  }) => {
     const account = resolveWeComAccount(cfg);
 
     if (!account.botId?.trim() || !account.secret?.trim()) {
@@ -151,7 +158,9 @@ export const wecomOnboardingAdapter: ChannelOnboardingAdapter = {
     return {cfg: cfgWithAccount};
   },
   dmPolicy,
-  disable: (cfg) => {
+  disable: (cfg: OpenClawConfig) => {
     return setWeComAccount(cfg, {enabled: false});
   },
 };
+
+export const wecomOnboardingAdapter = wecomOnboardingAdapterRaw as unknown as ChannelSetupWizardAdapter;

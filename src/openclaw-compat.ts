@@ -49,14 +49,15 @@ interface SdkExports {
 const _sdkReady: Promise<SdkExports> = import("openclaw/plugin-sdk")
   .then((sdk) => {
     const exports: SdkExports = {};
-    if (typeof sdk.loadOutboundMediaFromUrl === "function") {
-      exports.loadOutboundMediaFromUrl = sdk.loadOutboundMediaFromUrl;
+    const maybeSdk = sdk as Record<string, unknown>;
+    if (typeof maybeSdk.loadOutboundMediaFromUrl === "function") {
+      exports.loadOutboundMediaFromUrl = maybeSdk.loadOutboundMediaFromUrl as SdkExports["loadOutboundMediaFromUrl"];
     }
-    if (typeof sdk.detectMime === "function") {
-      exports.detectMime = sdk.detectMime;
+    if (typeof maybeSdk.detectMime === "function") {
+      exports.detectMime = maybeSdk.detectMime as SdkExports["detectMime"];
     }
-    if (typeof sdk.getDefaultMediaLocalRoots === "function") {
-      exports.getDefaultMediaLocalRoots = sdk.getDefaultMediaLocalRoots;
+    if (typeof maybeSdk.getDefaultMediaLocalRoots === "function") {
+      exports.getDefaultMediaLocalRoots = maybeSdk.getDefaultMediaLocalRoots as SdkExports["getDefaultMediaLocalRoots"];
     }
     return exports;
   })

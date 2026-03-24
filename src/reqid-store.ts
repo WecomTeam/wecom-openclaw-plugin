@@ -1,10 +1,11 @@
+import * as fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import {
   readJsonFileWithFallback,
   writeJsonFileAtomically,
-  withFileLock,
-} from "openclaw/plugin-sdk";
+} from "openclaw/plugin-sdk/json-store";
 
 // ============================================================================
 // 类型定义
@@ -52,6 +53,57 @@ const DEFAULT_LOCK_OPTIONS = {
     randomize: true,
   },
 } as const;
+
+async function withFileLock<T>(
+  filePath: string,
+  options: typeof DEFAULT_LOCK_OPTIONS,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const lockPath = `${filePath}.lock`;
+  const { retries, stale } = options;
+
+  for (let attempt = 0; ; attempt++) {
+    let handle: fs.FileHandle | null = null;
+    let acquiredLock = false;
+
+    try {
+      handle = await fs.open(lockPath, "wx");
+      acquiredLock = true;
+      await handle.writeFile(JSON.stringify({ pid: process.pid, ts: Date.now() }));
+      return await fn();
+    } catch (error) {
+      if (!handle) {
+        if ((error as NodeJS.ErrnoException)?.code === "EEXIST") {
+          try {
+            const stat = await fs.stat(lockPath);
+            if (Date.now() - stat.mtimeMs > stale) {
+              await fs.rm(lockPath, { force: true });
+              continue;
+            }
+          } catch {
+            // If the lock disappeared while we were checking, retry immediately.
+          }
+
+          if (attempt < retries.retries) {
+            const baseDelay = Math.min(
+              retries.maxTimeout,
+              Math.round(retries.minTimeout * Math.pow(retries.factor, attempt)),
+            );
+            const jitter = retries.randomize ? Math.random() * baseDelay * 0.25 : 0;
+            await sleep(baseDelay + jitter);
+            continue;
+          }
+        }
+      }
+      throw error;
+    } finally {
+      await handle?.close().catch(() => {});
+      if (acquiredLock) {
+        await fs.rm(lockPath, { force: true }).catch(() => {});
+      }
+    }
+  }
+}
 
 // ============================================================================
 // 状态目录解析

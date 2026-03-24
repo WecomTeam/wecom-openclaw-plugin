@@ -11,7 +11,7 @@
  */
 
 import { generateReqId } from "@wecom/aibot-node-sdk";
-import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
+import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk/core";
 import { getWeComWebSocket } from "../state-manager.js";
 import { MCP_GET_CONFIG_CMD, MCP_CONFIG_FETCH_TIMEOUT_MS } from "../const.js";
 import { withTimeout } from "../timeout.js";

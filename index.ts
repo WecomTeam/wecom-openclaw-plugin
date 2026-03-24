@@ -1,5 +1,5 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
-import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
+import { emptyPluginConfigSchema } from "openclaw/plugin-sdk/core";
 
 import { wecomPlugin } from "./src/channel.js";
 import { createWeComMcpTool } from "./src/mcp";
