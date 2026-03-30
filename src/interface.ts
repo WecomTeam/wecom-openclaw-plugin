@@ -46,6 +46,8 @@ export interface MessageState {
   deliverCalled?: boolean;
   /** 流式回复是否已过期（errcode 846608，>6分钟），需降级为主动发送 */
   streamExpired?: boolean;
+  /** thinking 流式消息开始发送的时间戳（毫秒），用于检测流超时 */
+  streamStartTime?: number;
 }
 
 // ============================================================================

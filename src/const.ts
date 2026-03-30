@@ -37,6 +37,20 @@ export const REPLY_SEND_TIMEOUT_MS = 15_000;
 /** 消息处理总超时时间（毫秒） */
 export const MESSAGE_PROCESS_TIMEOUT_MS = 5 * 60 * 1000;
 
+/**
+ * 流式回复安全时长（毫秒）
+ * 企业微信服务端在流超过 6 分钟无更新后会静默过期（errcode 846608 或直接丢弃），
+ * 此阈值设为 5.5 分钟，超出时主动降级为 sendMessage 主动推送，避免消息丢失。
+ */
+export const STREAM_SAFE_DURATION_MS = 5.5 * 60 * 1000;
+
+/**
+ * 流式心跳间隔（毫秒）
+ * 当 Agent 处理时间较长时，以此间隔发送"仍在处理中"占位更新，
+ * 防止企业微信服务端因流超时而静默丢弃最终回复。
+ */
+export const STREAM_KEEPALIVE_INTERVAL_MS = 2 * 60 * 1000;
+
 /** WebSocket 心跳间隔（毫秒） */
 export const WS_HEARTBEAT_INTERVAL_MS = 30_000;
 

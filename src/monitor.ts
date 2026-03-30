@@ -36,6 +36,8 @@ import {
   EVENT_ENTER_CHECK_UPDATE,
   CMD_ENTER_EVENT_REPLY,
   SCENE_WECOM_OPENCLAW,
+  STREAM_SAFE_DURATION_MS,
+  STREAM_KEEPALIVE_INTERVAL_MS,
 } from "./const.js";
 import type { WeComMonitorOptions, MessageState } from "./interface.js";
 import { parseMessageContent, type MessageBody } from "./message-parser.js";
@@ -266,6 +268,10 @@ async function sendThinkingReply(params: {
       finish: false,
       streamId,
     });
+    // 记录流开始时间，用于后续超时判断
+    if (state) {
+      state.streamStartTime = Date.now();
+    }
   } catch (err) {
     if (err instanceof StreamExpiredError && state) {
       state.streamExpired = true;
@@ -359,8 +365,16 @@ async function finishThinkingStream(ctx: DeliverContext): Promise<void> {
   // }
 
   if (finishText) {
-    // 尝试流式发送；若已知过期或发送时发现过期，统一降级为主动发送
+    // 若流式通道已标记过期，或流开启时长超过安全阈值（企业微信服务端 6 分钟静默过期），
+    // 直接降级为主动发送，避免消息被服务端静默丢弃。
     let expired = state.streamExpired;
+    if (!expired && state.streamStartTime) {
+      const streamAge = Date.now() - state.streamStartTime;
+      if (streamAge > STREAM_SAFE_DURATION_MS) {
+        expired = true;
+        runtime.log?.(`[wecom] Stream age ${Math.round(streamAge / 1000)}s exceeds safe duration, forcing proactive send`);
+      }
+    }
     if (!expired) {
       try {
         await sendWeComReply({wsClient, frame, text: finishText, runtime, finish: true, streamId: state.streamId});
@@ -407,6 +421,38 @@ async function routeAndDispatchMessage(params: {
 
   let isShowThink = !(account.sendThinkingMessage ?? true);
 
+  // 流式保活心跳：定期发送"仍在处理中"占位更新，防止企业微信服务端因 6 分钟无更新而静默过期。
+  // 只在 thinking 流已发出后（isShowThink=true）才启动，处理完成后立即停止。
+  let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
+  const startKeepAlive = () => {
+    if (keepAliveTimer) return;
+    keepAliveTimer = setInterval(async () => {
+      if (state.streamExpired || !state.streamId || !state.streamStartTime) return;
+      try {
+        await sendWeComReply({
+          wsClient, frame, runtime,
+          text: state.accumulatedText || "⏳ 仍在处理中，请稍候…",
+          finish: false,
+          streamId: state.streamId,
+        });
+        runtime.log?.(`[wecom] Stream keep-alive sent (age=${Math.round((Date.now() - state.streamStartTime) / 1000)}s)`);
+      } catch (err) {
+        if (err instanceof StreamExpiredError) {
+          state.streamExpired = true;
+          runtime.log?.(`[wecom] Stream expired during keep-alive, will fallback to proactive send`);
+        } else {
+          runtime.log?.(`[wecom] Stream keep-alive failed (non-fatal): ${String(err)}`);
+        }
+      }
+    }, STREAM_KEEPALIVE_INTERVAL_MS);
+    if (keepAliveTimer && typeof keepAliveTimer === "object" && "unref" in keepAliveTimer) {
+      (keepAliveTimer as any).unref();
+    }
+  };
+  const stopKeepAlive = () => {
+    if (keepAliveTimer) { clearInterval(keepAliveTimer); keepAliveTimer = null; }
+  };
+
   try {
     await core.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
       ctx: ctxPayload,
@@ -434,6 +480,7 @@ async function routeAndDispatchMessage(params: {
               runtime.error?.(`[wecom] sendThinkingReply threw err: ${String(e)}`);
             }
             isShowThink = true;
+            startKeepAlive();
           }
         },
         deliver: async (payload, info) => {
@@ -483,13 +530,15 @@ async function routeAndDispatchMessage(params: {
       },
     });
 
-    // 关闭 thinking 流
+    // 关闭 thinking 流（先停止心跳，再发送最终消息）
+    stopKeepAlive();
     await finishThinkingStream(ctx);
     safeCleanup();
   } catch (err) {
     runtime.error?.(`[wecom][plugin] Failed to process message: ${String(err)}`);
     // 即使 dispatch 抛异常，也需要关闭 thinking 流，
     // 避免 deliver 已成功发送媒体但后续出错时 thinking 消息残留或被错误文案覆盖
+    stopKeepAlive();
     try {
       await finishThinkingStream(ctx);
     } catch (finishErr) {
