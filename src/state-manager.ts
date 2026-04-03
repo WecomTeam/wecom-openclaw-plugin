@@ -18,8 +18,17 @@ import {
 // WSClient 实例管理
 // ============================================================================
 
-/** WSClient 实例管理 */
-const wsClientInstances = new Map<string, WSClient>();
+const WS_GLOBAL_KEY = "__wecom_openclaw_ws_clients__" as const;
+
+/**
+ * WSClient 实例管理
+ *
+ * 使用 globalThis 而非模块级变量，避免插件被框架多次加载时
+ * 产生多个独立的 Map 实例，导致 MCP 模块读不到 monitor 模块存入的 WSClient。
+ */
+const wsClientInstances: Map<string, WSClient> =
+  (globalThis as any)[WS_GLOBAL_KEY] ??
+  ((globalThis as any)[WS_GLOBAL_KEY] = new Map<string, WSClient>());
 
 /**
  * 获取指定账户的 WSClient 实例
