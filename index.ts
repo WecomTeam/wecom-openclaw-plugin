@@ -110,3 +110,7 @@ const plugin = {
 };
 
 export default plugin;
+
+// Named exports for OpenClaw plugin loader compatibility
+export const register = plugin.register;
+export const activate = () => {};  // activate hook (optional)
