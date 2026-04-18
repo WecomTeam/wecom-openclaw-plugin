@@ -7,6 +7,7 @@
 
 import crypto from "node:crypto";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import { DEFAULT_MEDIA_MAX_MB } from "../const.js";
 import type { StreamState, WecomWebhookTarget, WebhookInboundMessage, WebhookInboundQuote } from "./types.js";
 
 // ============================================================================
@@ -238,11 +239,15 @@ export function computeMd5(data: Buffer | string): string {
 
 /**
  * 解析媒体最大字节数（对齐原版 resolveWecomMediaMaxBytes）
+ *
+ * 优先级：channels.wecom.media.maxBytes > agents.defaults.mediaMaxMb > 20MB 兜底
  */
 export function resolveWecomMediaMaxBytes(cfg: OpenClawConfig): number {
   const val = (cfg.channels?.wecom as any)?.media?.maxBytes;
   if (typeof val === "number" && Number.isFinite(val) && val > 0) return val;
-  return 20 * 1024 * 1024; // 默认 20MB
+  const mb = cfg.agents?.defaults?.mediaMaxMb;
+  if (typeof mb === "number" && Number.isFinite(mb) && mb > 0) return Math.floor(mb * 1024 * 1024);
+  return DEFAULT_MEDIA_MAX_MB * 1024 * 1024; // 默认 20MB（由 const.ts 的 DEFAULT_MEDIA_MAX_MB 统一兜底）
 }
 
 // ============================================================================

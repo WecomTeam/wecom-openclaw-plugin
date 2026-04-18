@@ -26,7 +26,11 @@ import { processDynamicRouting } from "../dynamic-routing.js";
 import { CHANNEL_ID, DEFAULT_MEDIA_MAX_MB } from "../const.js";
 
 function resolveWecomMediaMaxBytes(config: OpenClawConfig): number {
-    return (config.channels?.wecom?.media?.maxBytes as number | undefined) ?? DEFAULT_MEDIA_MAX_MB * 1024 * 1024;
+    const val = config.channels?.wecom?.media?.maxBytes as number | undefined;
+    if (typeof val === "number" && Number.isFinite(val) && val > 0) return val;
+    const mb = config.agents?.defaults?.mediaMaxMb;
+    if (typeof mb === "number" && Number.isFinite(mb) && mb > 0) return Math.floor(mb * 1024 * 1024);
+    return DEFAULT_MEDIA_MAX_MB * 1024 * 1024;
 }
 
 /** 错误提示信息 */

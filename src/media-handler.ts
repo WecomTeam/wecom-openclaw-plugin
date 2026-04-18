@@ -58,8 +58,13 @@ export async function downloadAndSaveImages(params: {
   for (const imageUrl of imageUrls) {
     try {
       runtime.log?.(`[wecom] Downloading image: url=${imageUrl}`);
+      // 优先级：channels.wecom.media.maxBytes > agents.defaults.mediaMaxMb > DEFAULT_MEDIA_MAX_MB
+      const wecomMaxBytes = config.channels?.wecom?.media?.maxBytes as number | undefined;
       const mediaMaxMb = config.agents?.defaults?.mediaMaxMb ?? DEFAULT_MEDIA_MAX_MB;
-      const maxBytes = mediaMaxMb * 1024 * 1024;
+      const maxBytes =
+        typeof wecomMaxBytes === "number" && Number.isFinite(wecomMaxBytes) && wecomMaxBytes > 0
+          ? wecomMaxBytes
+          : mediaMaxMb * 1024 * 1024;
 
       let imageBuffer: Buffer;
       let imageContentType: string;
@@ -131,8 +136,13 @@ export async function downloadAndSaveFiles(params: {
   for (const fileUrl of fileUrls) {
     try {
       runtime.log?.(`[wecom] Downloading file: url=${fileUrl}`);
+      // 优先级：channels.wecom.media.maxBytes > agents.defaults.mediaMaxMb > DEFAULT_MEDIA_MAX_MB
+      const wecomMaxBytes = config.channels?.wecom?.media?.maxBytes as number | undefined;
       const mediaMaxMb = config.agents?.defaults?.mediaMaxMb ?? DEFAULT_MEDIA_MAX_MB;
-      const maxBytes = mediaMaxMb * 1024 * 1024;
+      const maxBytes =
+        typeof wecomMaxBytes === "number" && Number.isFinite(wecomMaxBytes) && wecomMaxBytes > 0
+          ? wecomMaxBytes
+          : mediaMaxMb * 1024 * 1024;
 
       let fileBuffer: Buffer;
       let fileContentType: string;
