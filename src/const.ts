@@ -92,8 +92,8 @@ export const MCP_CONFIG_FETCH_TIMEOUT_MS = 15_000;
 // 默认值
 // ============================================================================
 
-/** 默认媒体大小上限（MB） */
-export const DEFAULT_MEDIA_MAX_MB = 5;
+/** 默认媒体大小上限（MB），与 README 中 `channels.wecom.media.maxBytes` 的默认值 20MB 对齐 */
+export const DEFAULT_MEDIA_MAX_MB = 20;
 
 /** 文本分块大小上限 */
 export const TEXT_CHUNK_LIMIT = 4000;
