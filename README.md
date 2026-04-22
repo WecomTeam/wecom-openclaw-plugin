@@ -380,7 +380,7 @@ Dynamic Agent routing automatically creates isolated agents per user or group, e
 | `channels.wecom.dynamicAgents.enabled` | Enable dynamic agent routing | `false` |
 | `channels.wecom.dynamicAgents.dmCreateAgent` | Create isolated agent per DM user | `true` |
 | `channels.wecom.dynamicAgents.groupEnabled` | Enable dynamic agent for group chats | `true` |
-| `channels.wecom.dynamicAgents.adminUsers` | Admin users (bypass dynamic routing, use main agent) | `[]` |
+| `channels.wecom.dynamicAgents.adminUsers` | Admin users whose **DMs** bypass dynamic routing and use the main agent; group chats still follow group routing | `[]` |
 
 ---
 

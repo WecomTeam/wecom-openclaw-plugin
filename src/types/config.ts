@@ -94,6 +94,6 @@ export type WecomDynamicAgentsConfig = {
     dmCreateAgent?: boolean;
     /** 群聊：是否启用动态 Agent */
     groupEnabled?: boolean;
-    /** 管理员列表（绕过动态路由，使用主 Agent） */
+    /** 管理员列表（仅私聊绕过动态路由，使用主 Agent） */
     adminUsers?: string[];
 };
