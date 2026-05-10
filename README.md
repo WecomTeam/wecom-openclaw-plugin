@@ -159,7 +159,8 @@ The plugin supports two connection modes that can be used independently or toget
 | Config Path | Description | Default |
 |---|---|---|
 | `channels.wecom.mediaLocalRoots` | Extra local paths allowed for media sending (supports `~`) | `[]` |
-| `channels.wecom.media.maxBytes` | Max media file size in bytes | `20971520` (20MB) |
+| `channels.wecom.media.maxBytes` | Max media file size in bytes | `20971520` (20MB)  |
+｜ `agents.defaults.mediaMaxMb ｜Mb | `5` (5MB)  |
 | `channels.wecom.media.tempDir` | Temp directory for media processing | — |
 | `channels.wecom.media.retentionHours` | Media file retention hours | — |
 | `channels.wecom.media.cleanupOnStart` | Clean temp media on startup | — |
