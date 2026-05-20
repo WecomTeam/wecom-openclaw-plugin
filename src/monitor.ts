@@ -580,14 +580,20 @@ async function routeAndDispatchMessage(params: {
           }
 
           // 发送媒体（统一走主动发送）
+          // 去重：过滤掉本次回复中已发送过的 mediaUrl（block/final 均会触发 deliver，防止文件重复发送）
           const mediaUrls = payload.mediaUrls?.length
             ? payload.mediaUrls
             : payload.mediaUrl
               ? [payload.mediaUrl]
               : [];
-          if (mediaUrls.length > 0) {
+          const newMediaUrls = mediaUrls.filter(
+            (url) => !state.sentMediaUrls?.has(url),
+          );
+          if (newMediaUrls.length > 0) {
+            state.sentMediaUrls ??= new Set();
+            newMediaUrls.forEach((url) => state.sentMediaUrls!.add(url));
             try {
-              await sendMediaBatch(ctx, mediaUrls);
+              await sendMediaBatch(ctx, newMediaUrls);
             } catch (mediaErr) {
               // sendMediaBatch 内部异常（如 getDefaultMediaLocalRoots 不可用等）
               // 必须标记 state，否则 finishThinkingStream 会显示"处理完成"误导用户
