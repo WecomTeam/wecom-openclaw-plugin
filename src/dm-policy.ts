@@ -73,9 +73,9 @@ export async function checkDmPolicy(params: {
       .catch(() => []);
 
   // 检查发送者是否在允许列表中
-  const storeAllowFrom = [...oldStoreAllowFrom, ...newStoreAllowFrom];
+  const storeEntries = dmPolicy === "allowlist" ? [] : [...oldStoreAllowFrom, ...newStoreAllowFrom];
 
-  const effectiveAllowFrom = [...configAllowFrom, ...storeAllowFrom];
+  const effectiveAllowFrom = [...configAllowFrom, ...storeEntries];
   const senderAllowedResult = isSenderAllowed(senderId, effectiveAllowFrom);
 
   if (senderAllowedResult) {
