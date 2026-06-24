@@ -368,7 +368,10 @@ Dynamic Agent routing automatically creates isolated agents per user or group, e
         "enabled": true,
         "dmCreateAgent": true,
         "groupEnabled": true,
-        "adminUsers": ["admin_user_id"]
+        "adminUsers": ["admin_user_id"],
+        "workspaceTemplate": "{stateDir}/workspace/{agentId}",
+        "agentDirTemplate": "{stateDir}/agents/{agentId}/agent",
+        "workspaceTemplateDir": "~/openclaw-agent-template"
       }
     }
   }
@@ -381,6 +384,12 @@ Dynamic Agent routing automatically creates isolated agents per user or group, e
 | `channels.wecom.dynamicAgents.dmCreateAgent` | Create isolated agent per DM user | `true` |
 | `channels.wecom.dynamicAgents.groupEnabled` | Enable dynamic agent for group chats | `true` |
 | `channels.wecom.dynamicAgents.adminUsers` | Admin users (bypass dynamic routing, use main agent) | `[]` |
+| `channels.wecom.dynamicAgents.workspaceTemplate` | Workspace path template. Supports `{stateDir}` / `{agentId}` / `{userId}` | `{stateDir}/workspace/{agentId}` |
+| `channels.wecom.dynamicAgents.agentDirTemplate` | Agent directory template. Supports `{stateDir}` / `{agentId}` / `{userId}` | `{stateDir}/agents/{agentId}/agent` |
+| `channels.wecom.dynamicAgents.workspaceTemplateDir` | Optional template directory copied into a newly created workspace | unset |
+
+Deprecated compatibility:
+`dynamicAgentEnable`, `dynamicAgentWorkspaceTemplate`, `dynamicAgentDirTemplate`, and `dynamicAgentWorkspaceTemplateDir` are still accepted for backward compatibility, but new configs should use `channels.wecom.dynamicAgents.*`.
 
 ---
 

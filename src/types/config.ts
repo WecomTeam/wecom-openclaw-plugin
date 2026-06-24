@@ -96,4 +96,10 @@ export type WecomDynamicAgentsConfig = {
     groupEnabled?: boolean;
     /** 管理员列表（绕过动态路由，使用主 Agent） */
     adminUsers?: string[];
+    /** 动态 Agent 的 workspace 路径模板，支持 {stateDir} / {agentId} / {userId} */
+    workspaceTemplate?: string;
+    /** 动态 Agent 的 agentDir 路径模板，支持 {stateDir} / {agentId} / {userId} */
+    agentDirTemplate?: string;
+    /** 首次创建 workspace 时复制的模板目录 */
+    workspaceTemplateDir?: string;
 };

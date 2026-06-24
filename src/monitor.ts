@@ -40,7 +40,7 @@ import {
   SCENE_WECOM_OPENCLAW,
 } from "./const.js";
 import { checkDmPolicy } from "./dm-policy.js";
-import { processDynamicRouting } from "./dynamic-routing.js";
+import { resolveDynamicRoute } from "./dynamic-routing.js";
 import { checkGroupPolicy } from "./group-policy.js";
 import type { WeComMonitorOptions, MessageState } from "./interface.js";
 import {
@@ -49,9 +49,11 @@ import {
   MediaOversizeError,
 } from "./media-handler.js";
 import { uploadAndSendMedia } from "./media-uploader.js";
+import { deferOrMergeMedia } from "./media-cache.js";
 import { parseMessageContent, type MessageBody } from "./message-parser.js";
 import { sendWeComReply, sendWeComReplyNonBlocking, StreamExpiredError } from "./message-sender.js";
 import { getDefaultMediaLocalRoots, resolveStateDir } from "./openclaw-compat.js";
+import { extractMediaDirectivePayload, mergeDeliveredText } from "./reply-output.js";
 import { getWeComRuntime } from "./runtime.js";
 import {
   setWeComWebSocket,
@@ -201,7 +203,7 @@ export { sendWeComReply } from "./message-sender.js";
  * 构建消息上下文
  * @returns 消息上下文对象
  */
-function buildMessageContext(
+async function buildMessageContext(
   frame: WsFrame,
   account: ResolvedWeComAccount,
   config: OpenClawConfig,
@@ -214,37 +216,18 @@ function buildMessageContext(
   const body = frame.body as MessageBody;
   const chatId = body.chatid || body.from.userid;
   const chatType = body.chattype === "group" ? "group" : "direct";
-
-  // 解析路由信息
-  const route = core.channel.routing.resolveAgentRoute({
-    cfg: config,
-    channel: CHANNEL_ID,
+  const { route, config: effectiveConfig } = await resolveDynamicRoute({
+    config,
+    core,
     accountId: account.accountId,
     peer: {
       kind: chatType,
       id: chatId,
     },
-  });
-
-  // ===== 动态 Agent 路由注入 =====
-  const routingResult = processDynamicRouting({
-    route,
-    config,
-    core,
-    accountId: account.accountId,
-    chatType: chatType === "group" ? "group" : "dm",
-    chatId,
     senderId: body.from.userid,
     log: runtime?.log ? (...args: any[]) => runtime.log?.(...args) : undefined,
     error: runtime?.error ? (...args: any[]) => runtime.error?.(...args) : undefined,
   });
-
-  // 应用动态路由结果
-  if (routingResult.routeModified) {
-    route.agentId = routingResult.finalAgentId;
-    route.sessionKey = routingResult.finalSessionKey;
-  }
-  // ===== 动态 Agent 路由注入结束 =====
 
   // 构建会话标签
   const fromLabel = chatType === "group" ? `group:${chatId}` : `user:${body.from.userid}`;
@@ -267,7 +250,7 @@ function buildMessageContext(
       : undefined;
 
   // 使用 route.agentId 解析 storePath（多 agent 场景下 session 路径隔离）
-  const storePath = core.channel.session.resolveStorePath(config.session?.store, {
+  const storePath = core.channel.session.resolveStorePath(effectiveConfig.session?.store, {
     agentId: route.agentId,
   });
 
@@ -313,7 +296,7 @@ function buildMessageContext(
     ReplyToBody: quoteContent,
   });
 
-  return { ctxPayload, route, storePath, chatId, chatType };
+  return { ctxPayload, route, storePath, chatId, chatType, config: effectiveConfig };
 }
 
 // ============================================================================
@@ -481,8 +464,8 @@ async function finishThinkingStream(ctx: DeliverContext): Promise<void> {
  * 路由消息到核心处理流程并处理回复
  */
 async function routeAndDispatchMessage(params: {
-  ctxPayload: ReturnType<typeof buildMessageContext>["ctxPayload"];
-  route: ReturnType<typeof buildMessageContext>["route"];
+  ctxPayload: any;
+  route: any;
   storePath: string;
   chatId: string;
   chatType: string;
@@ -574,17 +557,25 @@ async function routeAndDispatchMessage(params: {
             `[openclaw -> plugin] kind=${info.kind}, payload=${JSON.stringify(payload)}, info=${JSON.stringify(info)}`,
           );
 
-          // 累积文本
-          if (payload.text) {
-            state.accumulatedText += `${payload.text || ""}`;
+          const { text: visibleText, mediaUrls: directiveMediaUrls } = extractMediaDirectivePayload(
+            payload.text ?? "",
+          );
+
+          // 同时兼容“增量片段”和“累计文本”两种 deliver 语义，避免把同一句话重复拼进流式消息。
+          if (visibleText) {
+            state.accumulatedText = mergeDeliveredText(
+              state.accumulatedText,
+              visibleText,
+              info.kind === "final" ? "final" : info.kind === "tool" ? "tool" : "block",
+            );
           }
 
           // 发送媒体（统一走主动发送）
           const mediaUrls = payload.mediaUrls?.length
-            ? payload.mediaUrls
+            ? Array.from(new Set([...payload.mediaUrls, ...directiveMediaUrls]))
             : payload.mediaUrl
-              ? [payload.mediaUrl]
-              : [];
+              ? Array.from(new Set([payload.mediaUrl, ...directiveMediaUrls]))
+              : directiveMediaUrls;
           if (mediaUrls.length > 0) {
             try {
               await sendMediaBatch(ctx, mediaUrls);
@@ -787,7 +778,23 @@ async function prepareWeComMessage(params: {
     }
     throw err;
   }
-  const mediaList = [...imageMediaList, ...fileMediaList];
+  const deferredMedia = deferOrMergeMedia({
+    cacheKey: `${account.accountId}:${chatId}`,
+    text,
+    mediaList: [...imageMediaList, ...fileMediaList],
+  });
+  if (deferredMedia.deferred) {
+    runtime.log?.(
+      `[wecom][plugin] Deferred pure-media message for chat=${chatId}, count=${imageMediaList.length + fileMediaList.length}`,
+    );
+    return null;
+  }
+  const mediaList = deferredMedia.mediaList;
+  if (deferredMedia.mergedCachedCount > 0) {
+    runtime.log?.(
+      `[wecom][plugin] Merged cached media for chat=${chatId}, cachedCount=${deferredMedia.mergedCachedCount}, currentCount=${imageMediaList.length + fileMediaList.length}`,
+    );
+  }
 
   return {
     frame,
@@ -849,7 +856,8 @@ async function processWeComMessageNow(entry: WeComMessageEntry): Promise<void> {
     storePath,
     chatId: resolvedChatId,
     chatType,
-  } = buildMessageContext(frame, account, config, text, mediaList, quoteContent, runtime);
+    config: effectiveConfig,
+  } = await buildMessageContext(frame, account, config, text, mediaList, quoteContent, runtime);
 
   // 以 sessionKey 为键记录「原始大小写」的 chatId 与 chatType，
   // 供 MCP 工具工厂（index.ts:registerTool）在构造工具闭包时取回，
@@ -871,7 +879,7 @@ async function processWeComMessageNow(entry: WeComMessageEntry): Promise<void> {
       storePath,
       chatId: resolvedChatId,
       chatType,
-      config,
+      config: effectiveConfig,
       account,
       wsClient,
       frame,

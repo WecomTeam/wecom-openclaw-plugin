@@ -47,7 +47,7 @@ import {
   buildStreamPlaceholderReply,
   buildStreamTextPlaceholderReply,
 } from "./helpers.js";
-import { processDynamicRouting } from "../dynamic-routing.js";
+import { resolveDynamicRoute } from "../dynamic-routing.js";
 // ============================================================================
 // 入站消息处理
 // ============================================================================
@@ -634,40 +634,23 @@ export async function startAgentForStream(params: {
   // ──────────────────────────────────────────────────────────────────
   // 4. 路由解析 + 动态路由处理
   // ──────────────────────────────────────────────────────────────────
-  const route = core.channel.routing.resolveAgentRoute({
-    cfg: config,
-    channel: "wecom",
-    accountId: account.accountId,
-    peer: { kind: chatType === "group" ? "group" : "direct", id: chatId },
-  });
-
-  // ===== 动态 Agent 路由处理 =====
-  const routingResult = processDynamicRouting({
-    route,
+  const { route, config: effectiveConfig } = await resolveDynamicRoute({
     config,
     core,
     accountId: account.accountId,
-    chatType: chatType === "group" ? "group" : "dm",
-    chatId,
+    peer: { kind: chatType === "group" ? "group" : "direct", id: chatId },
     senderId: userid,
     log: (msg) => target.runtime.log?.(msg.replace(/^\[dynamic-routing\]/, "[webhook]")),
     error: (msg) => target.runtime.error?.(msg.replace(/^\[dynamic-routing\]/, "[webhook]")),
   });
-
-  // 应用动态路由结果
-  if (routingResult.routeModified) {
-    route.agentId = routingResult.finalAgentId;
-    route.sessionKey = routingResult.finalSessionKey;
-  }
-  // ===== 动态 Agent 路由处理结束 =====
   // ──────────────────────────────────────────────────────────────────
   // 5. Agent Envelope 格式化（对齐原版）
   // ──────────────────────────────────────────────────────────────────
   const fromLabel = chatType === "group" ? `group:${chatId}` : `user:${userid}`;
-  const storePath = core.channel.session.resolveStorePath(config.session?.store, {
+  const storePath = core.channel.session.resolveStorePath(effectiveConfig.session?.store, {
     agentId: route.agentId,
   });
-  const envelopeOptions = core.channel.reply.resolveEnvelopeFormatOptions(config);
+  const envelopeOptions = core.channel.reply.resolveEnvelopeFormatOptions(effectiveConfig);
   const previousTimestamp = core.channel.session.readSessionUpdatedAt({
     storePath,
     sessionKey: route.sessionKey,
@@ -685,7 +668,7 @@ export async function startAgentForStream(params: {
   // ──────────────────────────────────────────────────────────────────
   const authz = await resolveWecomCommandAuthorization({
     core,
-    cfg: config,
+    cfg: effectiveConfig,
     accountConfig: account.config,
     rawBody,
     senderUserId: userid,
@@ -786,7 +769,7 @@ export async function startAgentForStream(params: {
   // 10. Markdown 表格模式解析
   // ──────────────────────────────────────────────────────────────────
   const tableMode = core.channel.text.resolveMarkdownTableMode({
-    cfg: config,
+      cfg: effectiveConfig,
     channel: "wecom",
     accountId: account.accountId,
   });

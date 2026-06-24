@@ -49,6 +49,14 @@ export interface WeComConfig {
   media?: WecomMediaConfig;
   /** 动态 Agent 配置 */
   dynamicAgents?: WecomDynamicAgentsConfig;
+  /** @deprecated 使用 dynamicAgents.enabled */
+  dynamicAgentEnable?: boolean;
+  /** @deprecated 使用 dynamicAgents.workspaceTemplate */
+  dynamicAgentWorkspaceTemplate?: string;
+  /** @deprecated 使用 dynamicAgents.agentDirTemplate */
+  dynamicAgentDirTemplate?: string;
+  /** @deprecated 使用 dynamicAgents.workspaceTemplateDir */
+  dynamicAgentWorkspaceTemplateDir?: string;
 
   // ── Webhook 模式扩展字段 ──────────────────────────────────────────
   /** 连接模式：webhook | websocket（默认 websocket） */

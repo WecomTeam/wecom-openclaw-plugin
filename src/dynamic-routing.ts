@@ -1,15 +1,12 @@
-/**
- * 动态路由统一处理模块
- * 提供统一的路由注入接口。
- */
+import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk/core";
 
-import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
-import type { PluginRuntime } from "openclaw/plugin-sdk/core";
-import { shouldUseDynamicAgent, generateAgentId } from "./dynamic-agent.js";
+import {
+  ensureDynamicAgentProvisioned,
+  generateAgentId,
+  shouldUseDynamicAgent,
+} from "./dynamic-agent.js";
+import { CHANNEL_ID } from "./const.js";
 
-/**
- * 路由对象（从 core.channel.routing.resolveAgentRoute 返回）
- */
 export interface AgentRoute {
   agentId: string;
   sessionKey: string;
@@ -18,63 +15,50 @@ export interface AgentRoute {
   mainSessionKey?: string;
 }
 
-/**
- * 动态路由处理参数
- */
 export interface DynamicRoutingParams {
-  /** 原始路由对象 */
   route: AgentRoute;
-  /** 全局配置 */
   config: OpenClawConfig;
-  /** 插件运行时 */
   core: PluginRuntime;
-  /** 账号 ID */
   accountId: string;
-  /** 会话类型 */
   chatType: "group" | "dm";
-  /** 对话 ID（群聊为 chatId，私聊为 userId） */
   chatId: string;
-  /** 发送者用户 ID */
   senderId: string;
-  /** 日志输出函数（可选） */
   log?: (msg: string) => void;
-  /** 错误日志输出函数（可选） */
   error?: (msg: string) => void;
 }
 
-/**
- * 动态路由处理结果
- */
 export interface DynamicRoutingResult {
-  /** 是否使用动态 Agent */
   useDynamicAgent: boolean;
-  /** 最终的 agentId（可能被动态注入修改） */
   finalAgentId: string;
-  /** 最终的 sessionKey（可能被动态注入修改） */
   finalSessionKey: string;
-  /** 是否修改了路由（注入了动态 Agent） */
   routeModified: boolean;
 }
 
-/**
- * 统一处理动态路由注入逻辑
- * 
- * 功能：
- * 1. 判断是否需要使用动态 Agent
- * 2. 根据 matchedBy 判断配置类型
- * 3. 返回最终的路由信息（不修改传入的 route 对象）
- * 4. 输出详细的调试日志
- * 
- * @param params 动态路由处理参数
- * @returns 处理结果
- */
+export interface ResolveDynamicRouteParams {
+  config: OpenClawConfig;
+  core: PluginRuntime;
+  accountId: string;
+  peer: {
+    kind: "direct" | "group";
+    id: string;
+  };
+  senderId: string;
+  log?: (msg: string) => void;
+  error?: (msg: string) => void;
+}
+
+export interface ResolveDynamicRouteResult {
+  route: AgentRoute;
+  config: OpenClawConfig;
+}
+
 export function processDynamicRouting(params: DynamicRoutingParams): DynamicRoutingResult {
   const { route, config, accountId, chatType, chatId, senderId, log } = params;
 
-  log?.(`[dynamic-routing] 🔍 调试 - matchedBy=${route.matchedBy}, agentId=${route.agentId}`);
-  
+  log?.(`[dynamic-routing] matchedBy=${route.matchedBy}, agentId=${route.agentId}`);
+
   if (route.matchedBy !== "default") {
-    log?.(`[dynamic-routing] ℹ️  检测到匹配的 bindings (matchedBy=${route.matchedBy})，跳过动态路由`);
+    log?.(`[dynamic-routing] matched bindings (matchedBy=${route.matchedBy}), skip injection`);
     return {
       useDynamicAgent: false,
       finalAgentId: route.agentId,
@@ -83,22 +67,20 @@ export function processDynamicRouting(params: DynamicRoutingParams): DynamicRout
     };
   }
 
-  // 判断是否使用动态 Agent
   const useDynamicAgent = shouldUseDynamicAgent({
     chatType,
     senderId,
     config,
   });
-  log?.(`[dynamic-routing] 是否使用动态路由: useDynamicAgent=${useDynamicAgent}`);
+  log?.(`[dynamic-routing] useDynamicAgent=${useDynamicAgent}`);
 
-  // 使用动态 Agent
   if (useDynamicAgent) {
-    log?.(`[dynamic-routing] 原始路由信息: agentId=${route.agentId}, matchedBy=${route.matchedBy}, sessionKey=${route.sessionKey}`);
-    
     const targetAgentId = generateAgentId(chatType, chatId, accountId);
     const targetSessionKey = `agent:${targetAgentId}:wecom:${accountId}:${chatType}:${chatId}`;
 
-    log?.(`[dynamic-routing] 🔄 路由注入: agentId=${targetAgentId}, sessionKey=${targetSessionKey}`);
+    log?.(
+      `[dynamic-routing] injecting fallback route agentId=${targetAgentId} sessionKey=${targetSessionKey}`,
+    );
 
     return {
       useDynamicAgent: true,
@@ -107,13 +89,71 @@ export function processDynamicRouting(params: DynamicRoutingParams): DynamicRout
       routeModified: true,
     };
   }
-  
-  log?.('[dynamic-routing] 🔄不使用动态路由');
-  // 不使用动态 Agent，返回原始路由
+
   return {
     useDynamicAgent: false,
     finalAgentId: route.agentId,
     finalSessionKey: route.sessionKey,
     routeModified: false,
   };
+}
+
+export async function resolveDynamicRoute(
+  params: ResolveDynamicRouteParams,
+): Promise<ResolveDynamicRouteResult> {
+  const { config, core, accountId, peer, senderId, log, error } = params;
+  const chatType = peer.kind === "group" ? "group" : "dm";
+  let effectiveConfig = config;
+  let route = core.channel.routing.resolveAgentRoute({
+    cfg: effectiveConfig,
+    channel: CHANNEL_ID,
+    accountId,
+    peer,
+  });
+
+  const provisionResult = await ensureDynamicAgentProvisioned({
+    routeMatchedBy: route.matchedBy,
+    config: effectiveConfig,
+    runtime: core,
+    accountId,
+    chatType,
+    chatId: peer.id,
+    senderId,
+    log,
+  });
+  if (provisionResult.created) {
+    effectiveConfig = provisionResult.updatedConfig;
+    route = core.channel.routing.resolveAgentRoute({
+      cfg: effectiveConfig,
+      channel: CHANNEL_ID,
+      accountId,
+      peer,
+    });
+    log?.(
+      `[dynamic-routing] re-resolved provisioned route matchedBy=${route.matchedBy} agentId=${route.agentId}`,
+    );
+  } else if (provisionResult.updatedConfig !== effectiveConfig) {
+    effectiveConfig = provisionResult.updatedConfig;
+  }
+
+  const routingResult = processDynamicRouting({
+    route,
+    config: effectiveConfig,
+    core,
+    accountId,
+    chatType,
+    chatId: peer.id,
+    senderId,
+    log,
+    error,
+  });
+  if (routingResult.routeModified) {
+    route = {
+      ...route,
+      agentId: routingResult.finalAgentId,
+      sessionKey: routingResult.finalSessionKey,
+    };
+  }
+
+  return { route, config: effectiveConfig };
 }
