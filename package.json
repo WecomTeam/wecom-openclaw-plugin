@@ -1,6 +1,6 @@
 {
   "name": "@wecom/wecom-openclaw-plugin",
-  "version": "2026.4.29",
+  "version": "20206.7.201",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

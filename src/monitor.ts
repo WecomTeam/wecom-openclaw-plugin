@@ -51,6 +51,7 @@ import {
 import { uploadAndSendMedia } from "./media-uploader.js";
 import { parseMessageContent, type MessageBody } from "./message-parser.js";
 import { sendWeComReply, sendWeComReplyNonBlocking, StreamExpiredError } from "./message-sender.js";
+import { enqueueWeComChatTask } from "./chat-queue.js";
 import { getDefaultMediaLocalRoots, resolveStateDir } from "./openclaw-compat.js";
 import { getWeComRuntime } from "./runtime.js";
 import {
@@ -444,6 +445,14 @@ async function finishThinkingStream(ctx: DeliverContext): Promise<void> {
     } else if (!finishText) {
       finishText = "📎 文件已发送，请查收。";
     }
+  }
+
+  // 兜底：本轮无任何可见产出（无文本/媒体/卡片，常见于"只发文件未带指令"
+  // 的消息被 agent 当作上下文读取后不单独回复）。此时若已开启过 thinking 流，
+  // 必须发送一个含可见字符的 finish 帧关闭它，否则该消息会一直 loading。
+  // 注意：企微会忽略纯空格等不可见内容，必须用可见字符才能真正关闭。
+  if (!finishText && state.streamId) {
+    finishText = "✅ 已收到";
   }
 
   if (finishText) {
@@ -1085,17 +1094,20 @@ export async function monitorWeComProvider(options: WeComMonitorOptions): Promis
         });
         if (!entry) return;
 
-        // 排队逻辑暂时关闭，直接处理消息
-        // const { status } = enqueueWeComChatTask({
-        //   accountId: entry.account.accountId,
-        //   chatId: entry.chatId,
-        //   task: () => processWeComMessageNow(entry),
-        // });
-        //
-        // if (status === "queued") {
-        //   runtime.log?.(`[wecom] Chat task queued for chat=${entry.chatId} (previous task still running)`);
-        // }
-        await processWeComMessageNow(entry);
+        // 按 accountId:chatId 串行排队，保证同一会话消息按序处理，
+        // 避免并发触发 OpenClaw 前台回复栅栏（ForegroundReplyFence）互相抑制
+        // 导致较早消息的流式回复被丢弃、thinking 流无法 finish 而一直 loading。
+        const { status } = enqueueWeComChatTask({
+          accountId: entry.account.accountId,
+          chatId: entry.chatId,
+          task: () => processWeComMessageNow(entry),
+        });
+
+        if (status === "queued") {
+          runtime.log?.(
+            `[wecom] Chat task queued for chat=${entry.chatId} (previous task still running)`,
+          );
+        }
       } catch (err) {
         runtime.error?.(`[${account.accountId}] Failed to process message: ${String(err)}`);
       }
@@ -1147,7 +1159,12 @@ export async function monitorWeComProvider(options: WeComMonitorOptions): Promis
           wsClient,
         });
         if (entry) {
-          await processWeComMessageNow(entry);
+          // 事件回调与普通消息共用同一会话队列，保证严格串行
+          enqueueWeComChatTask({
+            accountId: entry.account.accountId,
+            chatId: entry.chatId,
+            task: () => processWeComMessageNow(entry),
+          });
         }
       } catch (err) {
         runtime.error?.(

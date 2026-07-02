@@ -8,6 +8,10 @@
 
 发起智能文档内容导出任务（异步）。传入 `docid` 或 `url` 和 `content_type`，返回 `task_id`。
 
+### 调用
+
+使用 `wecom_mcp` tool 调用 `wecom_mcp call doc smartpage_export_task '<JSON 参数>'`
+
 ### 技能定义
 
 ```json
@@ -27,8 +31,8 @@
                 "type": "string"
             },
             "content_type": {
-                "description": "导出内容格式。0: Text，1: Markdown",
-                "enum": [0, 1],
+                "description": "导出内容格式。目前仅支持 1（Markdown 格式）",
+                "enum": [1],
                 "title": "Content Type",
                 "type": "integer"
             }
@@ -45,11 +49,11 @@
 
 ### 参数说明
 
-| 参数         | 类型    | 必填            | 说明                                          |
-| ------------ | ------- | --------------- | --------------------------------------------- |
-| docid        | string  | 与 url 二选一   | 智能文档的 docid                              |
-| url          | string  | 与 docid 二选一 | 智能文档的访问链接                            |
-| content_type | integer | 是              | 导出内容格式：0-Text，1-Markdown |
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| docid | string | 与 url 二选一 | 智能文档的 docid |
+| url | string | 与 docid 二选一 | 智能文档的访问链接 |
+| content_type | integer | 是 | 导出内容格式，目前仅支持 `1`（Markdown 格式） |
 
 ### 请求示例
 
@@ -83,6 +87,10 @@
 
 查询智能文档导出任务进度。传入 `task_id` 进行轮询，当 `task_done` 为 `true` 时返回导出内容的本地文件路径。
 
+### 调用
+
+使用 `wecom_mcp` tool 调用 `wecom_mcp call doc smartpage_get_export_result '<JSON 参数>'`
+
 ### 技能定义
 
 ```json
@@ -106,9 +114,9 @@
 
 ### 参数说明
 
-| 参数    | 类型   | 必填 | 说明                                         |
-| ------- | ------ | ---- | -------------------------------------------- |
-| task_id | string | 是   | 导出任务 ID，由 `smartpage_export_task` 返回 |
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| task_id | string | 是 | 导出任务 ID，由 `smartpage_export_task` 返回 |
 
 ### 请求示例
 
@@ -153,7 +161,7 @@
 ## 注意事项
 
 - `smartpage_export_task` 是异步操作的第一步，调用后仅返回 `task_id`
-- `content_type` 建议使用 `1`（Markdown）以获取可编辑的文本格式
+- `content_type` 目前仅支持 `1`（Markdown 格式）
 - `docid` 和 `url` 二选一传入即可，无需同时传入
 - `content_filepath` 仅在 `task_done` 为 `true` 时返回
 - `content_filepath` 是本地文件路径，使用 Read 工具读取文件内容即可
