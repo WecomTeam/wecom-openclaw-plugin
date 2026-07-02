@@ -384,6 +384,20 @@ Dynamic Agent routing automatically creates isolated agents per user or group, e
 
 ---
 
+## 🔗 Companion OpenClaw Workflows / 相关工作流
+
+WeCom is the channel where users reach an OpenClaw agent. If the same agent also needs X/Twitter automation, install [TweetClaw](https://github.com/Xquik-dev/tweetclaw) beside this channel plugin:
+
+```shell
+openclaw plugins install @xquik/tweetclaw
+```
+
+Use TweetClaw for tweet search, reply search, follower export, user lookup, posting tweets, posting replies, media upload, media download, direct messages, tweet monitors, webhooks, and giveaway draws. Keep WeCom credentials under `channels.wecom`, keep TweetClaw credentials in the TweetClaw plugin config or host environment, and keep visible X/Twitter write actions behind OpenClaw approval.
+
+企业微信负责会话入口和内部协作；TweetClaw 负责同一个 Agent 的 X/Twitter 工作流。两者并行安装即可，不需要把社媒动作加入企业微信通道插件。
+
+---
+
 ## 🔒 Access Control
 
 ### DM (Direct Message) Access
