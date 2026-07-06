@@ -22,7 +22,7 @@ import {
 import { sendText, downloadMedia, uploadMedia, sendMedia as sendAgentMedia } from "./api-client.js";
 import type { WecomAgentInboundMessage } from "../types/index.js";
 import { buildWecomUnauthorizedCommandPrompt, resolveWecomCommandAuthorization } from "../shared/command-auth.js";
-import { processDynamicRouting } from "../dynamic-routing.js";
+import { resolveDynamicRoute } from "../dynamic-routing.js";
 import { CHANNEL_ID, DEFAULT_MEDIA_MAX_MB } from "../const.js";
 
 function resolveWecomMediaMaxBytes(config: OpenClawConfig): number {
@@ -432,39 +432,22 @@ async function processAgentMessage(params: {
     }
 
     // 解析路由
-    const route = core.channel.routing.resolveAgentRoute({
-        cfg: config,
-        channel: "wecom",
-        accountId: agent.accountId,
-        peer: { kind: isGroup ? "group" : "direct", id: peerId },
-    });
-
-    // ===== 动态 Agent 路由处理 =====
-    const routingResult = processDynamicRouting({
-        route,
+    const { route, config: effectiveConfig } = await resolveDynamicRoute({
         config,
         core,
         accountId: agent.accountId,
-        chatType: isGroup ? "group" : "dm",
-        chatId: peerId,
+        peer: { kind: isGroup ? "group" : "direct", id: peerId },
         senderId: fromUser,
         log: (msg) => log?.(msg.replace(/^\[dynamic-routing\]/, "[wecom-agent]")),
         error: (msg) => error?.(msg.replace(/^\[dynamic-routing\]/, "[wecom-agent]")),
     });
 
-    // 应用动态路由结果
-    if (routingResult.routeModified) {
-        route.agentId = routingResult.finalAgentId;
-        route.sessionKey = routingResult.finalSessionKey;
-    }
-    // ===== 动态 Agent 路由处理结束 =====
-
     // 构建上下文
     const fromLabel = isGroup ? `group:${peerId}` : `user:${fromUser}`;
-    const storePath = core.channel.session.resolveStorePath(config.session?.store, {
+    const storePath = core.channel.session.resolveStorePath(effectiveConfig.session?.store, {
         agentId: route.agentId,
     });
-    const envelopeOptions = core.channel.reply.resolveEnvelopeFormatOptions(config);
+    const envelopeOptions = core.channel.reply.resolveEnvelopeFormatOptions(effectiveConfig);
     const previousTimestamp = core.channel.session.readSessionUpdatedAt({
         storePath,
         sessionKey: route.sessionKey,
@@ -479,7 +462,7 @@ async function processAgentMessage(params: {
 
     const authz = await resolveWecomCommandAuthorization({
         core,
-        cfg: config,
+        cfg: effectiveConfig,
         // Agent 门禁应读取 channels.wecom.agent.dm（即 agent.config.dm），而不是 channels.wecom.dm（不存在）
         accountConfig: agent.config,
         rawBody: finalContent,
@@ -540,7 +523,7 @@ async function processAgentMessage(params: {
     // 调度回复
     await core.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
         ctx: ctxPayload,
-        cfg: config,
+        cfg: effectiveConfig,
         dispatcherOptions: {
             deliver: async (payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string }, info: { kind: string }) => {
                 let text = payload.text ?? "";
