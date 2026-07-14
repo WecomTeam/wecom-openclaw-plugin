@@ -9,7 +9,7 @@ import type { ChannelSetupAdapter } from "openclaw/plugin-sdk/setup";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { addWildcardAllowFrom } from "./openclaw-compat.js";
 import type { WeComConfig } from "./utils.js";
-import { resolveWeComAccountMulti, setWeComAccountMulti } from "./accounts.js";
+import { resolveWeComAccountMulti, setWeComAccountMulti, resolveDefaultWeComAccountId } from "./accounts.js";
 import { CHANNEL_ID } from "./const.js";
 
 // ============================================================================
@@ -17,23 +17,38 @@ import { CHANNEL_ID } from "./const.js";
 // ============================================================================
 
 export const wecomSetupAdapter: ChannelSetupAdapter = {
-  applyAccountConfig: ({ cfg, input }) => {
+  applyAccountConfig: ({ cfg, input, accountId }) => {
     const patch: Partial<WeComConfig> = {};
+    const anyInput = input as any;
 
     if (input.token !== undefined) {
       patch.botId = String(input.token).trim();
     }
-    if (input.privateKey !== undefined) {
-      patch.secret = String(input.privateKey).trim();
+    if (input.privateKey !== undefined || input.secret !== undefined) {
+      patch.secret = String(input.privateKey || input.secret).trim();
+    }
+    if (anyInput.dmPolicy !== undefined) {
+      patch.dmPolicy = anyInput.dmPolicy;
+    }
+    if (anyInput.dmAllowlist !== undefined) {
+      patch.allowFrom = Array.isArray(anyInput.dmAllowlist)
+        ? anyInput.dmAllowlist
+        : String(anyInput.dmAllowlist)
+            .split(/[,;]+/)
+            .map((s: string) => s.trim())
+            .filter(Boolean);
+    }
+    if (input.name !== undefined) {
+      patch.name = String(input.name).trim();
     }
 
     // 如果是首次配置，默认启用
-    const account = resolveWeComAccountMulti({ cfg });
+    const account = resolveWeComAccountMulti({ cfg, accountId });
     if (!account.botId && !account.secret) {
       patch.enabled = true;
     }
 
-    return setWeComAccountMulti(cfg, patch);
+    return setWeComAccountMulti(cfg, patch, accountId);
   },
 };
 
@@ -47,8 +62,9 @@ export const wecomSetupAdapter: ChannelSetupAdapter = {
 function setWeComDmPolicy(
   cfg: OpenClawConfig,
   dmPolicy: "pairing" | "allowlist" | "open" | "disabled",
+  accountId?: string,
 ): OpenClawConfig {
-  const account = resolveWeComAccountMulti({ cfg });
+  const account = resolveWeComAccountMulti({ cfg, accountId });
   const existingAllowFrom = account.config.allowFrom ?? [];
   const allowFrom =
     dmPolicy === "open"
@@ -58,7 +74,7 @@ function setWeComDmPolicy(
   return setWeComAccountMulti(cfg, {
     dmPolicy,
     allowFrom,
-  });
+  }, accountId);
 }
 
 const dmPolicy: ChannelSetupDmPolicy = {
@@ -66,15 +82,15 @@ const dmPolicy: ChannelSetupDmPolicy = {
   channel: CHANNEL_ID,
   policyKey: `channels.${CHANNEL_ID}.dmPolicy`,
   allowFromKey: `channels.${CHANNEL_ID}.allowFrom`,
-  getCurrent: (cfg) => {
-    const account = resolveWeComAccountMulti({ cfg });
-    return account.config.dmPolicy ?? "open";
+  getCurrent: (cfg, accountId) => {
+    const account = resolveWeComAccountMulti({ cfg, accountId });
+    return (account.config.dmPolicy as any) ?? "open";
   },
-  setPolicy: (cfg, policy) => {
-    return setWeComDmPolicy(cfg, policy);
+  setPolicy: (cfg, policy, accountId) => {
+    return setWeComDmPolicy(cfg, policy, accountId);
   },
-  promptAllowFrom: async ({ cfg, prompter }) => {
-    const account = resolveWeComAccountMulti({ cfg });
+  promptAllowFrom: async ({ cfg, prompter, accountId }) => {
+    const account = resolveWeComAccountMulti({ cfg, accountId });
     const existingAllowFrom = account.config.allowFrom ?? [];
 
     const entry = await prompter.text({
@@ -88,7 +104,7 @@ const dmPolicy: ChannelSetupDmPolicy = {
       .map((s) => s.trim())
       .filter(Boolean);
 
-    return setWeComAccountMulti(cfg, { allowFrom });
+    return setWeComAccountMulti(cfg, { allowFrom }, accountId);
   },
 };
 
@@ -105,11 +121,11 @@ export const wecomSetupWizard: ChannelSetupWizard = {
     unconfiguredLabel: "需要 Bot ID 和 Secret",
     configuredHint: "已配置",
     unconfiguredHint: "需要设置",
-    resolveConfigured: ({ cfg }) => {
-      const account = resolveWeComAccountMulti({ cfg });
+    resolveConfigured: ({ cfg, accountId }) => {
+      const account = resolveWeComAccountMulti({ cfg, accountId });
       return Boolean(account.botId?.trim() && account.secret?.trim());
     },
-    resolveStatusLines: ({ cfg, configured }) => {
+    resolveStatusLines: ({ cfg, configured, accountId }) => {
       return [`企业微信: ${configured ? "已配置" : "需要 Bot ID 和 Secret"}`];
     },
   },
@@ -122,8 +138,8 @@ export const wecomSetupWizard: ChannelSetupWizard = {
       "1. Bot ID: 企业微信机器人 ID",
       "2. Secret: 企业微信机器人密钥",
     ],
-    shouldShow: ({ cfg }) => {
-      const account = resolveWeComAccountMulti({ cfg });
+    shouldShow: ({ cfg, accountId }) => {
+      const account = resolveWeComAccountMulti({ cfg, accountId });
       return !account.botId?.trim() || !account.secret?.trim();
     },
   },
@@ -137,8 +153,8 @@ export const wecomSetupWizard: ChannelSetupWizard = {
       envPrompt: "使用环境变量中的 Bot ID？",
       keepPrompt: "Bot ID 已配置，保留当前值？",
       inputPrompt: "企业微信机器人 Bot ID",
-      inspect: ({ cfg }) => {
-        const account = resolveWeComAccountMulti({ cfg });
+      inspect: ({ cfg, accountId }) => {
+        const account = resolveWeComAccountMulti({ cfg, accountId });
         const hasValue = Boolean(account.botId?.trim());
         return {
           accountConfigured: hasValue,
@@ -146,8 +162,8 @@ export const wecomSetupWizard: ChannelSetupWizard = {
           resolvedValue: account.botId || undefined,
         };
       },
-      applySet: ({ cfg, resolvedValue }) => {
-        return setWeComAccountMulti(cfg, { botId: resolvedValue });
+      applySet: ({ cfg, resolvedValue, accountId }) => {
+        return setWeComAccountMulti(cfg, { botId: resolvedValue }, accountId);
       },
     },
     {
@@ -157,8 +173,8 @@ export const wecomSetupWizard: ChannelSetupWizard = {
       envPrompt: "使用环境变量中的 Secret？",
       keepPrompt: "Secret 已配置，保留当前值？",
       inputPrompt: "企业微信机器人 Secret",
-      inspect: ({ cfg }) => {
-        const account = resolveWeComAccountMulti({ cfg });
+      inspect: ({ cfg, accountId }) => {
+        const account = resolveWeComAccountMulti({ cfg, accountId });
         const hasValue = Boolean(account.secret?.trim());
         return {
           accountConfigured: hasValue,
@@ -166,18 +182,18 @@ export const wecomSetupWizard: ChannelSetupWizard = {
           resolvedValue: account.secret || undefined,
         };
       },
-      applySet: ({ cfg, resolvedValue }) => {
-        return setWeComAccountMulti(cfg, { secret: resolvedValue });
+      applySet: ({ cfg, resolvedValue, accountId }) => {
+        return setWeComAccountMulti(cfg, { secret: resolvedValue }, accountId);
       },
     },
   ],
 
   // ── 完成后的最终处理 ──────────────────────────────────────────────────
-  finalize: async ({ cfg }) => {
+  finalize: async ({ cfg, accountId }) => {
     // 确保配置完成后 channel 处于启用状态
-    const account = resolveWeComAccountMulti({ cfg });
+    const account = resolveWeComAccountMulti({ cfg, accountId });
     if (account.botId?.trim() && account.secret?.trim() && !account.enabled) {
-      return { cfg: setWeComAccountMulti(cfg, { enabled: true }) };
+      return { cfg: setWeComAccountMulti(cfg, { enabled: true }, accountId) };
     }
     return undefined;
   },
@@ -189,8 +205,8 @@ export const wecomSetupWizard: ChannelSetupWizard = {
       "企业微信机器人已配置完成。",
       "运行 `openclaw start` 启动服务。",
     ],
-    shouldShow: ({ cfg }) => {
-      const account = resolveWeComAccountMulti({ cfg });
+    shouldShow: ({ cfg, accountId }) => {
+      const account = resolveWeComAccountMulti({ cfg, accountId });
       return Boolean(account.botId?.trim() && account.secret?.trim());
     },
   },
@@ -200,6 +216,7 @@ export const wecomSetupWizard: ChannelSetupWizard = {
 
   // ── 禁用 ─────────────────────────────────────────────────────────────
   disable: (cfg) => {
-    return setWeComAccountMulti(cfg, { enabled: false });
+    const accountId = resolveDefaultWeComAccountId(cfg);
+    return setWeComAccountMulti(cfg, { enabled: false }, accountId);
   },
 };
