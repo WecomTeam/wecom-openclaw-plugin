@@ -48,6 +48,12 @@ import {
   buildStreamTextPlaceholderReply,
 } from "./helpers.js";
 import { processDynamicRouting } from "../dynamic-routing.js";
+import {
+  dispatchWeComPluginInteractiveHandler,
+  type WeComInteractiveHandlerContext,
+} from "../interactive-dispatch.js";
+import { handleWeComAskUserCardEvent } from "../tools/ask-user-question.js";
+import type { MessageBody } from "../message-parser.js";
 // ============================================================================
 // 入站消息处理
 // ============================================================================
@@ -244,6 +250,53 @@ export async function handleEnterChat(
 // ============================================================================
 
 /**
+ * 构造 Bot Webhook 模式下的 respond 三件套：
+ * - reply / followUp：通过回调携带的 response_url 推送 markdown（一次性）
+ * - editMessage：Webhook 模式没有回调 frame，无法路由 updateTemplateCard，回退为 reply
+ */
+function buildWebhookInteractiveRespond(params: {
+  message: WebhookInboundMessage;
+  proxyUrl?: string;
+  runtime: WecomWebhookTarget["runtime"];
+}): WeComInteractiveHandlerContext["respond"] {
+  const { message, proxyUrl, runtime } = params;
+  const responseUrl = message.response_url;
+
+  const sendMarkdown = async (text: string | undefined): Promise<void> => {
+    const trimmed = text?.trim();
+    if (!trimmed) return;
+    if (!responseUrl) {
+      runtime.log?.("[webhook] [interactive] reply skipped: no response_url");
+      return;
+    }
+    const res = await wecomFetch(
+      responseUrl,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ msgtype: "markdown", markdown: { content: trimmed } }),
+      },
+      { proxyUrl, timeoutMs: REQUEST_TIMEOUT_MS },
+    );
+    if (!res.ok) {
+      throw new Error(`interactive reply via response_url failed: ${res.status}`);
+    }
+  };
+
+  return {
+    reply: async ({ text }) => {
+      await sendMarkdown(text);
+    },
+    followUp: async ({ text }) => {
+      await sendMarkdown(text);
+    },
+    editMessage: async ({ text }) => {
+      if (text?.trim()) await sendMarkdown(text);
+    },
+  };
+}
+
+/**
  * 处理模板卡片事件（对齐原版 template_card_event 逻辑）
  *
  * 原版流程：
@@ -274,26 +327,61 @@ export async function handleTemplateCardEvent(
     return {};
   }
 
-  // 2. 解析卡片交互数据
-  const cardEvent = message.event?.template_card_event as Record<string, unknown> | undefined;
-  let interactionDesc = `[卡片交互] 按钮: ${String(cardEvent?.event_key ?? "unknown")}`;
+  // ── 交互卡：ask-user-question / 业务插件处理器（优先匹配） ──
+  const inboundBody = message as unknown as MessageBody;
+  const askUserOutcome = handleWeComAskUserCardEvent({
+    accountId: target.account.accountId,
+    body: inboundBody,
+    runtime: target.runtime,
+  });
 
-  // 解析选择项（selected_items.selected_item）
-  const selectedItems = cardEvent?.selected_items as Record<string, unknown> | undefined;
-  const selectedItemList = selectedItems?.selected_item as Array<Record<string, unknown>> | undefined;
-  if (Array.isArray(selectedItemList) && selectedItemList.length > 0) {
-    const selects = selectedItemList.map((i) => {
-      const questionKey = String(i.question_key ?? "");
-      const optionIds = (i.option_ids as Record<string, unknown> | undefined)?.option_id;
-      const optionStr = Array.isArray(optionIds) ? optionIds.join(",") : String(optionIds ?? "");
-      return `${questionKey}=${optionStr}`;
+  let interactionDesc: string | undefined;
+  if (askUserOutcome?.status === "answered") {
+    // 用户答案已收齐：用结构化答案文本替换粗糙的交互描述
+    interactionDesc = askUserOutcome.answerText;
+  } else if (askUserOutcome?.status === "consumed") {
+    target.runtime.log?.(
+      `[webhook] template_card_event consumed by ask-user: reason=${askUserOutcome.reason}, msgid=${msgid ?? "N/A"}`,
+    );
+    return {};
+  } else {
+    // 非 ask-user：分发给 registerInteractiveHandler 注册的业务插件处理器
+    const dispatchResult = await dispatchWeComPluginInteractiveHandler({
+      accountId: target.account.accountId,
+      body: inboundBody,
+      runtime: target.runtime,
+      respond: buildWebhookInteractiveRespond({ message, proxyUrl, runtime: target.runtime }),
     });
-    interactionDesc += ` 选择: ${selects.join("; ")}`;
+    if (dispatchResult.matched) {
+      target.runtime.log?.(
+        `[webhook] template_card_event handled by registered plugin handler (duplicate=${dispatchResult.duplicate}), skip agent`,
+      );
+      return {};
+    }
   }
 
-  // 解析任务 ID
-  if (cardEvent?.task_id) {
-    interactionDesc += ` (任务ID: ${String(cardEvent.task_id)})`;
+  // 2. 解析卡片交互数据（兜底：原有粗糙描述）
+  const cardEvent = message.event?.template_card_event as Record<string, unknown> | undefined;
+  if (!interactionDesc) {
+    interactionDesc = `[卡片交互] 按钮: ${String(cardEvent?.event_key ?? "unknown")}`;
+
+    // 解析选择项（selected_items.selected_item）
+    const selectedItems = cardEvent?.selected_items as Record<string, unknown> | undefined;
+    const selectedItemList = selectedItems?.selected_item as Array<Record<string, unknown>> | undefined;
+    if (Array.isArray(selectedItemList) && selectedItemList.length > 0) {
+      const selects = selectedItemList.map((i) => {
+        const questionKey = String(i.question_key ?? "");
+        const optionIds = (i.option_ids as Record<string, unknown> | undefined)?.option_id;
+        const optionStr = Array.isArray(optionIds) ? optionIds.join(",") : String(optionIds ?? "");
+        return `${questionKey}=${optionStr}`;
+      });
+      interactionDesc += ` 选择: ${selects.join("; ")}`;
+    }
+
+    // 解析任务 ID
+    if (cardEvent?.task_id) {
+      interactionDesc += ` (任务ID: ${String(cardEvent.task_id)})`;
+    }
   }
 
   target.runtime.log?.(

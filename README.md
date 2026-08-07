@@ -38,6 +38,8 @@
 - 🔐 Agent mode: AES-256-CBC encrypted XML callbacks with SHA1 signature verification
 - 📝 Markdown formatting support for replies
 - 🃏 Template card messages (text_notice, news_notice, button_interaction, vote_interaction, multiple_interaction) with **event callback handling**
+- 🗳️ Interactive card pipeline: card `event_key` follows the `namespace:payload` convention and is dispatched to business plugins registered via `api.registerInteractiveHandler({ channel: "wecom", ... })` (aligned with openclaw-lark / openclaw-channel-dingtalk designs)
+- ❓ `wecom_ask_user_question` tool: the agent asks the user questions via interactive cards (button / vote) and receives structured answers as a follow-up message (TTL 5min, owner-only answering; Bot WebSocket mode)
 - 🔒 Built-in access control: DM Policy (pairing / open / allowlist / disabled) and Group Policy (open / allowlist / disabled)
 - 🔑 Command authorization: per-account command permission control with access group support
 - 👥 Multi-account support: run multiple WeCom accounts with independent bot/agent configs

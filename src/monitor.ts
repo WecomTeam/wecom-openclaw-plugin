@@ -69,6 +69,11 @@ import {
   updateTemplateCardOnEvent,
   processTemplateCardsIfNeeded,
 } from "./template-card-manager.js";
+import {
+  dispatchWeComPluginInteractiveHandler,
+  buildWsInteractiveRespond,
+} from "./interactive-dispatch.js";
+import { handleWeComAskUserCardEvent } from "./tools/ask-user-question.js";
 import { maskTemplateCardBlocks } from "./template-card-parser.js";
 import type { ResolvedWeComAccount, WeComConfig } from "./utils.js";
 import { PLUGIN_VERSION } from "./version.js";
@@ -1129,17 +1134,91 @@ export async function monitorWeComProvider(options: WeComMonitorOptions): Promis
             `[${account.accountId}] Received template_card_event: event_key=${templateCardEvent?.event_key ?? ""}, task_id=${templateCardEvent?.task_id ?? ""}`,
           );
 
-          try {
-            await updateTemplateCardOnEvent({
-              frame,
-              accountId: account.accountId,
-              runtime,
-              wsClient,
-            });
-          } catch (updateErr) {
-            runtime.error?.(
-              `[${account.accountId}] [template-card-update] Failed to update template card: ${String(updateErr)}`,
+          // ── ask-user-question：优先匹配待回答的提问卡片 ──
+          const askUserOutcome = handleWeComAskUserCardEvent({
+            accountId: account.accountId,
+            body: eventBody,
+            runtime,
+          });
+
+          if (askUserOutcome?.status === "answered") {
+            // 先更新卡片 UI（已提交态），再把回调体改写为答案文本，
+            // 沿正常入站消息链路注入 Agent 新一轮对话
+            try {
+              await updateTemplateCardOnEvent({
+                frame,
+                accountId: account.accountId,
+                runtime,
+                wsClient,
+              });
+            } catch (updateErr) {
+              runtime.error?.(
+                `[${account.accountId}] [template-card-update] Failed to update template card: ${String(updateErr)}`,
+              );
+            }
+            eventBody.msgtype = "text";
+            eventBody.text = { content: askUserOutcome.answerText };
+            delete eventBody.event;
+            // 事件回调的 req_id 已被上方卡片更新回复消费，标记该帧的后续回复
+            // 走主动发送（sendMessage），避免被动回复复用 req_id 触发 846605
+            (eventBody as unknown as Record<string, unknown>).__wecomReplyViaActiveSend = true;
+            // 继续走下方 prepareWeComMessage → 会话队列 → Agent
+          } else if (askUserOutcome?.status === "consumed") {
+            // 部分回答（多卡片未完成）仍需更新当前卡片 UI；
+            // 其余原因（过期 / 非提问人 / 重复提交 / 空选择）不更新 UI
+            if (askUserOutcome.reason === "partial_answer") {
+              try {
+                await updateTemplateCardOnEvent({
+                  frame,
+                  accountId: account.accountId,
+                  runtime,
+                  wsClient,
+                });
+              } catch (updateErr) {
+                runtime.error?.(
+                  `[${account.accountId}] [template-card-update] Failed to update template card: ${String(updateErr)}`,
+                );
+              }
+            }
+            runtime.log?.(
+              `[${account.accountId}] [ask-user] template_card_event consumed: reason=${askUserOutcome.reason}`,
             );
+            return;
+          } else {
+            // ── 非 ask-user：分发给 registerInteractiveHandler 注册的业务插件处理器 ──
+            const dispatchResult = await dispatchWeComPluginInteractiveHandler({
+              accountId: account.accountId,
+              body: eventBody,
+              runtime,
+              respond: buildWsInteractiveRespond({
+                wsClient,
+                frame,
+                accountId: account.accountId,
+                body: eventBody,
+                runtime,
+              }),
+            });
+
+            try {
+              await updateTemplateCardOnEvent({
+                frame,
+                accountId: account.accountId,
+                runtime,
+                wsClient,
+              });
+            } catch (updateErr) {
+              runtime.error?.(
+                `[${account.accountId}] [template-card-update] Failed to update template card: ${String(updateErr)}`,
+              );
+            }
+
+            if (dispatchResult.matched) {
+              // 业务插件已处理：只更新卡片 UI，不再把原始回调文本转发给 Agent
+              runtime.log?.(
+                `[${account.accountId}] [interactive] template_card_event handled by registered plugin handler (duplicate=${dispatchResult.duplicate}), skip agent forwarding`,
+              );
+              return;
+            }
           }
         } else if (eventType === "auth_change_event") {
           const authChangeEvent = eventBody.event?.auth_change_event;

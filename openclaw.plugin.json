@@ -5,7 +5,8 @@
   ],
   "contracts": {
     "tools": [
-      "wecom_mcp"
+      "wecom_mcp",
+      "wecom_ask_user_question"
     ]
   },
   "skills": [

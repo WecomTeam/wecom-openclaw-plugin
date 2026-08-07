@@ -7,6 +7,7 @@ import { setWeComRuntime } from "./src/runtime.js";
 import { CHANNEL_ID, WEBHOOK_PATHS } from "./src/const.js";
 import { createWecomAgentWebhookHandler } from "./src/agent/webhook.js";
 import { handleWecomWebhookRequest } from "./src/webhook/index.js";
+import { registerWeComAskUserQuestionTool } from "./src/tools/ask-user-question.js";
 
 const plugin = {
   id: "wecom-openclaw-plugin",
@@ -43,6 +44,9 @@ const plugin = {
       },
       { name: "wecom_mcp" },
     );
+
+    // 注册 wecom_ask_user_question：通过交互式模板卡片向用户提问并等待回答
+    registerWeComAskUserQuestionTool(api);
 
     const agentWebhookHandler = createWecomAgentWebhookHandler(api.runtime);
 
