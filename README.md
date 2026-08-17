@@ -1,3 +1,5 @@
+English | [中文版](./README.zh.md)
+
 > 💡 **快速上手指引 & 交流群**
 >
 > 📖 [点击查看完整接入指引文档](https://doc.weixin.qq.com/doc/w3_AFYA1wY6ACoCNRxfnyGRJQaSa6jjJ?scode=AJEAIQdfAAo0RJmzxLAFYA1wY6ACo) — 包含配置步骤、产品介绍、常见问题解答等。
