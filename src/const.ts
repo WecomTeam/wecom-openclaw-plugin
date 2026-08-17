@@ -78,26 +78,6 @@ export const MEDIA_DOCUMENT_PLACEHOLDER = "<media:document>";
 // 默认值
 // ============================================================================
 
-// ============================================================================
-// MCP 配置
-// ============================================================================
-
-/** 获取 MCP 配置的 WebSocket 命令 */
-export const MCP_GET_CONFIG_CMD = "aibot_get_mcp_config";
-
-/** 发送业务消息的 WebSocket 命令（如文档授权卡片） */
-export const AIBOT_SEND_BIZ_MSG_CMD = "aibot_send_biz_msg";
-
-/** 业务消息超时时间（毫秒） */
-export const BIZ_MSG_SEND_TIMEOUT_MS = 10_000;
-
-/** MCP 配置拉取超时时间（毫秒） */
-export const MCP_CONFIG_FETCH_TIMEOUT_MS = 15_000;
-
-// ============================================================================
-// 默认值
-// ============================================================================
-
 /** 默认媒体大小上限（MB） */
 export const DEFAULT_MEDIA_MAX_MB = 5;
 

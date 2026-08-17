@@ -1,6 +1,6 @@
 {
   "name": "@wecom/wecom-openclaw-plugin",
-  "version": "20206.7.201",
+  "version": "2026.8.17",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -65,10 +65,10 @@
   },
   "dependencies": {
     "@wecom/aibot-node-sdk": "^1.0.6",
+    "@wecom/cli": "^1.0.0",
     "fast-xml-parser": "^5.5.9",
     "file-type": "^21.3.0",
-    "undici": "^7.24.6",
-    "zod": "^4.3.6"
+    "undici": "^7.24.6"
   },
   "peerDependencies": {
     "openclaw": ">=2026.3.28"

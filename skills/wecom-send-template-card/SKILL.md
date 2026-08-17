@@ -26,7 +26,7 @@ metadata:
 
 1. **严格按 schema 生成**：字段名、类型、嵌套结构必须与 [./references/api-template-card-types.md](./references/api-template-card-types.md) 中的 JSON Schema 定义完全一致
 2. **每张卡片必须有 `task_id`**：格式 `task_{场景}_{时间戳}`，只能包含数字、字母、`_-@`
-3. 不要使用 MCP 工具调用，直接在回复中输出 JSON 代码块
+3. 不要调用 `wecom-cli` 或其他工具发送卡片，直接在最终回复中输出 JSON 代码块
 4. 代码块外的文本会作为普通回复发送
 
 ## 卡片类型选择

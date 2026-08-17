@@ -49,6 +49,8 @@ export interface WeComConfig {
   media?: WecomMediaConfig;
   /** 动态 Agent 配置 */
   dynamicAgents?: WecomDynamicAgentsConfig;
+  /** wecom-cli tool 配置 */
+  cli?: WecomCliConfig;
 
   // ── Webhook 模式扩展字段 ──────────────────────────────────────────
   /** 连接模式：webhook | websocket（默认 websocket） */
@@ -63,6 +65,32 @@ export interface WeComConfig {
   welcomeText?: string;
   /** 流式占位符提示内容 */
   streamPlaceholderContent?: string;
+}
+
+/**
+ * wecom-cli tool 配置
+ */
+export interface WecomCliConfig {
+  /**
+   * 显式指定 wecom-cli 二进制路径。
+   * 不配置时按 `@tencent/wecom-cli-<platform>` → `@wecom/cli-<platform>` 顺序自动寻址。
+   * 联调期可指向本地 cargo 构建产物。
+   */
+  binPath?: string;
+  /**
+   * 透传给 wecom-cli 的环境变量（仅接受下列三个键）。
+   *
+   * 用于把cli 指向测试环境。注意这三个变量在 cli 侧受 `custom-endpoint`
+   * 编译特性门控（默认关闭），未启用该特性的正式包上不生效。
+   *
+   * ⚠️ WECOM_CLI_AUTH_ENDPOINT 必须与插件换取凭据所用端点保持一致，
+   * 否则登录态与业务调用会分属不同环境。
+   */
+  env?: {
+    WECOM_CLI_BASE_URL?: string;
+    WECOM_CLI_AUTH_ENDPOINT?: string;
+    WECOM_CLI_ADDITIONAL_HEADERS?: string;
+  };
 }
 
 /**

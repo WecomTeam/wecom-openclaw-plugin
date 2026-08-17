@@ -5,7 +5,7 @@
   ],
   "contracts": {
     "tools": [
-      "wecom_mcp"
+      "wecom-cli"
     ]
   },
   "skills": [

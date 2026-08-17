@@ -59,7 +59,6 @@ import {
   setMessageState,
   deleteMessageState,
   setReqIdForChat,
-  setSessionChatInfo,
   warmupReqIdStore,
   startMessageStateCleanup,
   stopMessageStateCleanup,
@@ -860,17 +859,6 @@ async function processWeComMessageNow(entry: WeComMessageEntry): Promise<void> {
     chatType,
   } = buildMessageContext(frame, account, config, text, mediaList, quoteContent, runtime);
 
-  // 以 sessionKey 为键记录「原始大小写」的 chatId 与 chatType，
-  // 供 MCP 工具工厂（index.ts:registerTool）在构造工具闭包时取回，
-  // 进而传递给需要原始 chatId 的拦截器（如 doc-auth-error 发送 biz_msg）。
-  //
-  // 注意：不要使用 parseSessionKeyChat 反解 sessionKey —— OpenClaw core
-  //       构建 sessionKey 时会将 peer.id 强制小写化，会导致企业微信
-  //       aibot_send_biz_msg 报 errcode=93006 invalid chatid。
-  setSessionChatInfo(route.sessionKey, {
-    chatId: resolvedChatId,
-    chatType: chatType === "group" ? "group" : "single",
-  });
   // runtime.log?.(`[plugin -> openclaw] body=${text}, mediaPaths=${JSON.stringify(mediaList.map(m => m.path))}${quoteContent ? `, quote=${quoteContent}` : ''}`);
 
   try {

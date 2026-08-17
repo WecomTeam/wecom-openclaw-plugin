@@ -17,9 +17,9 @@
 
 # 🤖 WeCom OpenClaw Plugin
 
-**WeCom channel plugin for [OpenClaw](https://github.com/openclaw)** — by the Tencent WeCom team.
+**WeCom channel and business capability plugin for [OpenClaw](https://github.com/openclaw)** — by the Tencent WeCom team.
 
-> A channel plugin powered by WeCom. Supports **Bot mode** (WebSocket long-polling or HTTP webhook with JSON callbacks) and **Agent mode** (HTTP webhook with XML encrypted callbacks). Direct messages, group chats, streaming replies, and proactive messaging.
+> A channel and business capability plugin powered by WeCom. Supports **Bot mode** (WebSocket long-polling or HTTP webhook with JSON callbacks), **Agent mode** (HTTP webhook with XML encrypted callbacks), direct messages, group chats, streaming replies, proactive messaging, and built-in `wecom-cli` business operations.
 
 ---
 
@@ -41,8 +41,7 @@
 - 🔒 Built-in access control: DM Policy (pairing / open / allowlist / disabled) and Group Policy (open / allowlist / disabled)
 - 🔑 Command authorization: per-account command permission control with access group support
 - 👥 Multi-account support: run multiple WeCom accounts with independent bot/agent configs
-- 🧩 MCP tool integration (`wecom_mcp`) with interceptor pipeline (biz-error, media, smartpage-create, smartpage-export)
-- 🎯 **15 built-in Skills**: contact lookup, doc management, todo, meeting, schedule, messaging, smartsheet, template cards, and more
+- 🧰 Built-in business Skills powered by the plugin-provided `wecom-cli` tool
 - 🔀 Dynamic Agent routing: auto-create isolated agents per user/group
 - 📁 Local file sending with configurable media path allowlist (`mediaLocalRoots`)
 - 📊 Smart media size limits with auto-downgrade (image 10MB → file, video 10MB → file, voice 2MB/AMR-only → file, max 20MB)
@@ -50,6 +49,25 @@
 - ⚡ Auto heartbeat keep-alive and reconnection (up to 10 reconnect attempts, 5 auth failure retries)
 - 🛡️ Anti-kick protection: suppresses auto-restart on server-side disconnection to prevent mutual kicking loops
 - 🧙 Interactive CLI setup wizard
+
+### Enterprise Business Capabilities
+
+The plugin includes the `wecom-cli` tool and corresponding Skills, covering the following WeCom business domains:
+
+| Domain | Capabilities |
+|---|---|
+| 💬 Messaging | Proactively send messages to direct or group chats that recently interacted with the bot; supports Markdown, image, file, voice, and video messages |
+| 📧 Email | Send, reply to, and forward email; search messages and retrieve full email details |
+| 📄 Documents | Create, import, read, append to, and overwrite online documents |
+| 🗂️ Document Management | Search across multiple document types; rename online documents, spreadsheets, smart sheets, and smart documents; manage members, permissions, and join rules |
+| 📊 Spreadsheets | Create online spreadsheets, import CSV/Excel files, read and update content, append rows, and manage sheets |
+| 🧮 Smart Sheets | Create smart sheets; manage sheets, fields, records, views, charts, and row/column styles |
+| 📰 Smart Documents | Create smart documents, retrieve and edit page content, and access embedded data table information |
+| ✅ Todo | Create, read, update, and delete todo items; assign participants and mark items as complete |
+| 📅 Calendar | Create, read, update, and delete events; manage participants, query attendee availability, and search or reserve meeting rooms |
+| 🎥 Meetings | Schedule, cancel, and update meetings; manage attendees, query meeting lists and details, and retrieve minutes and transcripts |
+| 💾 WeDrive | Search files, retrieve file metadata, and upload or download files |
+| 👤 Contacts | Search members by name, pinyin, or alias and retrieve member details for meetings, calendar events, and other multi-user workflows |
 
 ---
 
@@ -101,6 +119,17 @@ openclaw config set channels.wecom.secret <YOUR_BOT_SECRET>
 openclaw config set channels.wecom.enabled true
 openclaw gateway restart
 ```
+
+### Enable Business Tools
+
+The enterprise business capabilities above are exposed through the plugin-provided `wecom-cli` tool. Unless `tools.profile` is set to `full`, allow the plugin and restart the Gateway:
+
+```shell
+openclaw config set tools.alsoAllow '["wecom-openclaw-plugin"]'
+openclaw gateway restart
+```
+
+> Allowing the plugin ID enables all tools currently or subsequently registered by this plugin. If `tools.alsoAllow` already contains other entries, merge `wecom-openclaw-plugin` into the existing array instead of replacing it.
 
 ### Mode Overview
 
