@@ -7,6 +7,7 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import type { WSClient } from "@wecom/aibot-node-sdk";
+import { decryptFile } from "@wecom/aibot-node-sdk";
 import { fileTypeFromBuffer } from "file-type";
 import { getWeComRuntime } from "./runtime.js";
 import { IMAGE_DOWNLOAD_TIMEOUT_MS, FILE_DOWNLOAD_TIMEOUT_MS, DEFAULT_MEDIA_MAX_MB } from "./const.js";
@@ -70,6 +71,31 @@ async function detectImageContentType(data: Buffer): Promise<string> {
   return "application/octet-stream";
 }
 
+/**
+ * fallback 路径专用：当回退到 `fetchRemoteMedia` 时，这条路径只做 HTTP fetch，
+ * 不感知消息上下文中的 `aesKey`，落盘字节仍是 AES-CBC 密文。本辅助函数补上
+ * 解密步骤，保证下游 magic-byte 嗅探与 MIME 推断能拿到真实文件内容。
+ *
+ * 解密失败时（极少数 — 例如服务端真给了明文）退回原 buffer，由调用方自行决定。
+ */
+function tryDecryptWithAesKey(
+  buffer: Buffer,
+  aesKey: string | undefined,
+  runtime: RuntimeEnv,
+): Buffer {
+  if (!aesKey) return buffer;
+  try {
+    const decrypted = decryptFile(buffer, aesKey);
+    runtime.log?.(
+      `[wecom] Fallback decrypt OK: ${buffer.length} -> ${decrypted.length} bytes`,
+    );
+    return decrypted;
+  } catch (e) {
+    runtime.log?.(`[wecom] Fallback decrypt failed, keep raw: ${String(e)}`);
+    return buffer;
+  }
+}
+
 // ============================================================================
 // 图片下载和保存
 // ============================================================================
@@ -121,9 +147,13 @@ export async function downloadAndSaveImages(params: {
         ) as { buffer: Buffer; contentType?: string };
         runtime.log?.(`[wecom] Image fetched: contentType=${fetched.contentType}, size=${fetched.buffer.length}`);
 
-        imageBuffer = fetched.buffer;
-        imageContentType = fetched.contentType ?? "application/octet-stream";
-        const isValidImage = await isImageBuffer(fetched.buffer);
+        // fix: `fetchRemoteMedia` 仅做 HTTP fetch，不解密 AES-CBC，
+        // 直接落盘会导致 fileTypeFromBuffer 嗅探失败 → contentType 退化为
+        // application/octet-stream → 文件名缺扩展 → 下游 image 工具报
+        // "Unsupported media type: undefined"。此处补解密。
+        imageBuffer = tryDecryptWithAesKey(fetched.buffer, imageAesKey, runtime);
+        imageContentType = await detectImageContentType(imageBuffer);
+        const isValidImage = await isImageBuffer(imageBuffer);
 
         if (!isValidImage) {
           runtime.log?.(`[wecom] WARN: Downloaded data is not a valid image format`);
@@ -212,8 +242,11 @@ export async function downloadAndSaveFiles(params: {
         ) as { buffer: Buffer; contentType?: string };
         runtime.log?.(`[wecom] File fetched: contentType=${fetched.contentType}, size=${fetched.buffer.length}`);
 
-        fileBuffer = fetched.buffer;
-        fileContentType = fetched.contentType ?? "application/octet-stream";
+        // fix: 同图片分支，fallback 路径漏解密会导致下载文件 MD5 与原文件不一致
+        // （用户拿到的是密文），重新做 magic-byte 嗅探推 MIME。
+        fileBuffer = tryDecryptWithAesKey(fetched.buffer, fileAesKey, runtime);
+        const type = await fileTypeFromBuffer(fileBuffer);
+        fileContentType = type?.mime ?? fetched.contentType ?? "application/octet-stream";
       }
 
       // 大小校验由插件层主动进行，超限抛出 MediaOversizeError，由 monitor 统一提示用户。
