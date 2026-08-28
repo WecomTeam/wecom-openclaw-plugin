@@ -16,7 +16,7 @@ import { CHANNEL_ID } from "./const.js";
 // ChannelSetupAdapter — 框架用于应用配置输入的适配器
 // ============================================================================
 
-export const wecomSetupContract = defineChannelSetupContract({
+export const wecomSetupContract: ReturnType<typeof defineChannelSetupContract> = defineChannelSetupContract({
   fields: {
     token: { kind: "string", cli: { flags: "--token <value>", description: "WeCom bot ID" } },
     privateKey: {
