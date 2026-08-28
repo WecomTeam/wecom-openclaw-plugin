@@ -58,7 +58,28 @@
       "docsLabel": "wecom-openclaw-plugin",
       "blurb": "企业微信机器人接入插件",
       "order": 80,
-      "quickstartAllowFrom": true
+      "quickstartAllowFrom": true,
+      "setup": {
+        "fields": [
+          {
+            "key": "token",
+            "kind": "string",
+            "cli": {
+              "flags": "--token <value>",
+              "description": "WeCom bot ID"
+            }
+          },
+          {
+            "key": "privateKey",
+            "kind": "string",
+            "sensitive": true,
+            "cli": {
+              "flags": "--private-key <value>",
+              "description": "WeCom bot secret"
+            }
+          }
+        ]
+      }
     },
     "install": {
       "npmSpec": "@wecom/wecom-openclaw-plugin",

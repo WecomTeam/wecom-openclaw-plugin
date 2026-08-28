@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk/core";
 import { wecomPlugin } from "./channel.js";
@@ -38,6 +39,11 @@ describe("WeCom logout config ownership", () => {
 
 
 describe("WeCom setup contract", () => {
+  it("publishes the same CLI fields before plugin runtime loading", () => {
+    const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+    expect(manifest.openclaw.channel.setup).toEqual(wecomPlugin.setupContract!.metadata);
+  });
+
   it("keeps the existing credential inputs and applies them through the owned setup contract", () => {
     const setup = wecomPlugin.setupContract!;
     const input = { token: " bot-id ", privateKey: " fixture-secret " };
