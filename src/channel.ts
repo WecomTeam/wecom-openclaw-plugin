@@ -10,7 +10,7 @@ import { formatPairingApproveHint, DEFAULT_ACCOUNT_ID } from './openclaw-compat.
 import { getWeComRuntime } from "./runtime.js";
 import { monitorWeComProvider } from "./monitor.js";
 import { getWeComWebSocket } from "./state-manager.js";
-import { wecomSetupWizard, wecomSetupAdapter } from "./onboarding.js";
+import { wecomSetupWizard, wecomSetupContract } from "./onboarding.js";
 import type { WeComConfig, ResolvedWeComAccount } from "./utils.js";
 import {
   listWeComAccountIds,
@@ -124,7 +124,7 @@ export const wecomPlugin: ChannelPlugin<ResolvedWeComAccount> = {
     },
   },
   setupWizard: wecomSetupWizard,
-  setup: wecomSetupAdapter,
+  setupContract: wecomSetupContract,
   capabilities: {
     chatTypes: ["direct", "group"],
     reactions: false,
@@ -439,7 +439,7 @@ export const wecomPlugin: ChannelPlugin<ResolvedWeComAccount> = {
             accountId,
             kind: "config",
             message: "企业微信机器人 ID 或 Secret 未配置",
-            fix: "Run: openclaw channels add wecom --bot-id <id> --secret <secret>",
+            fix: "Run: openclaw channels add --channel wecom --token <id> --private-key <secret>",
           });
         }
         return issues;

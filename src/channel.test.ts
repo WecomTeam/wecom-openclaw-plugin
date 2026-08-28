@@ -35,3 +35,18 @@ describe("WeCom logout config ownership", () => {
     expect(mutateConfigFile).toHaveBeenCalledWith(expect.objectContaining({ afterWrite: { mode: "auto" } }));
   });
 });
+
+
+describe("WeCom setup contract", () => {
+  it("keeps the existing credential inputs and applies them through the owned setup contract", () => {
+    const setup = wecomPlugin.setupContract!;
+    const input = { token: " bot-id ", privateKey: " fixture-secret " };
+    expect(setup.parseInput(input)).toEqual({ ok: true, value: input });
+    const cfg = setup.applyAccountConfig({ cfg: {}, accountId: "default", input });
+    expect(cfg.channels?.wecom).toMatchObject({ botId: "bot-id", secret: "fixture-secret", enabled: true });
+    expect(setup.metadata.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "token", cli: expect.objectContaining({ flags: "--token <value>" }) }),
+      expect.objectContaining({ key: "privateKey", sensitive: true, cli: expect.objectContaining({ flags: "--private-key <value>" }) }),
+    ]));
+  });
+});

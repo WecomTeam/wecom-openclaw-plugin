@@ -5,7 +5,7 @@
  */
 
 import type { ChannelSetupWizard, ChannelSetupDmPolicy } from "openclaw/plugin-sdk/setup";
-import type { ChannelSetupAdapter, ChannelSetupInput } from "openclaw/plugin-sdk/setup";
+import { defineChannelSetupContract } from "openclaw/plugin-sdk/channel-setup";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { addWildcardAllowFrom } from "./openclaw-compat.js";
 import type { WeComConfig } from "./utils.js";
@@ -16,9 +16,16 @@ import { CHANNEL_ID } from "./const.js";
 // ChannelSetupAdapter — 框架用于应用配置输入的适配器
 // ============================================================================
 
-type WeComSetupInput = Omit<ChannelSetupInput, "privateKey"> & { privateKey?: string };
-
-export const wecomSetupAdapter: ChannelSetupAdapter<WeComSetupInput> = {
+export const wecomSetupContract = defineChannelSetupContract({
+  fields: {
+    token: { kind: "string", cli: { flags: "--token <value>", description: "WeCom bot ID" } },
+    privateKey: {
+      kind: "string",
+      sensitive: true,
+      cli: { flags: "--private-key <value>", description: "WeCom bot secret" },
+    },
+  },
+  adapter: {
   singleAccountKeysToMove: ["botId", "secret"],
   applyAccountConfig: ({ cfg, input }) => {
     const patch: Partial<WeComConfig> = {};
@@ -38,7 +45,8 @@ export const wecomSetupAdapter: ChannelSetupAdapter<WeComSetupInput> = {
 
     return setWeComAccountMulti(cfg, patch);
   },
-};
+  },
+});
 
 // ============================================================================
 // DM Policy 配置
