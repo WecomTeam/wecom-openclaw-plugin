@@ -536,15 +536,17 @@ The `delivery.to` field supports the following target formats:
 openclaw cron add \
   --name "daily-report" \
   --agent main \
+  --session isolated \
   --cron "0 9 * * 1-5" \
   --tz "Asia/Shanghai" \
   --message "Good morning! Here is your daily briefing." \
   --announce \
   --channel wecom \
-  --to "party:1"
+  --to "party:1" \
+  --account main
 ```
 
-> **Note**: `--announce` enables delivery mode (broadcasts the AI response to the target chat). Use `--no-deliver` to keep output internal. The deprecated `--deliver` flag is an alias for `--announce`.
+> **Note**: `--agent` selects the OpenClaw agent that runs the task. `--account` selects the configured WeCom account used for delivery; replace `main` with your account ID. Neither is the numeric WeCom application `agentId`. `--announce` enables runner fallback delivery of the final response. `--no-deliver` disables that fallback; it does not prevent the agent from sending messages through tools.
 
 Common CLI commands:
 
@@ -559,45 +561,7 @@ openclaw cron runs --id <id>    # View run history
 openclaw cron edit <id> --message "New prompt"  # Edit a job
 ```
 
-### Method 2: Edit `jobs.json` (requires gateway restart)
-
-File path: `~/.openclaw/cron/jobs.json`
-
-```json
-{
-  "version": 1,
-  "jobs": [
-    {
-      "id": "daily-report",
-      "name": "Daily Report",
-      "agentId": "main",
-      "enabled": true,
-      "schedule": { "kind": "cron", "expr": "0 9 * * 1-5", "tz": "Asia/Shanghai" },
-      "sessionTarget": "isolated",
-      "wakeMode": "now",
-      "payload": {
-        "kind": "agentTurn",
-        "message": "Generate today's briefing and send it."
-      },
-      "delivery": {
-        "mode": "announce",
-        "channel": "wecom",
-        "to": "party:1",
-        "accountId": "main"
-      },
-      "state": {}
-    }
-  ]
-}
-```
-
-After editing, restart the gateway:
-
-```shell
-openclaw gateway restart
-```
-
-### Method 3: Create via chat (takes effect immediately)
+### Method 2: Create via chat (takes effect immediately)
 
 You can ask the AI agent directly in a WeCom conversation:
 
@@ -609,7 +573,7 @@ The agent will call the Cron API to create the job — no restart needed.
 
 - Cron jobs use the **Agent outbound** path — Agent mode (`corpId` / `corpSecret` / `agentId`) must be configured.
 - The server IP must be in the WeCom trusted IP allowlist, or configure `egressProxyUrl` for a fixed egress proxy.
-- Jobs created via CLI or chat API take effect immediately. Manual edits to `jobs.json` require `openclaw gateway restart`.
+- Create and update jobs through the CLI, Gateway API, or agent conversation. Changes take effect without restarting the Gateway.
 - For multi-account setups, set `delivery.accountId` to the target account (e.g. `"main"`, `"support"`).
 
 ---
