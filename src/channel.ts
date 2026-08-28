@@ -1,3 +1,4 @@
+import type { OutboundDeliveryResult } from "openclaw/plugin-sdk/channel-send-result";
 import {
   type ChannelPlugin,
   type OpenClawConfig,
@@ -40,7 +41,7 @@ async function sendWeComMessage({
   content: string;
   accountId?: string;
   cfg?: OpenClawConfig;
-}): Promise<{ channel: string; messageId: string; chatId: string }> {
+}): Promise<OutboundDeliveryResult> {
   const resolvedAccountId = accountId ?? DEFAULT_ACCOUNT_ID;
 
   // 从 to 中提取目标（格式是 "${CHANNEL_ID}:xxx" 或直接是目标字符串）
@@ -55,7 +56,7 @@ async function sendWeComMessage({
       markdown: { content },
     });
     const messageId = result?.headers?.req_id ?? `wecom-${Date.now()}`;
-    return { channel: CHANNEL_ID, messageId, chatId };
+    return { channel: CHANNEL_ID, messageId, target: { kind: "chat", id: chatId } };
   }
 
   // ── 回退到 Agent HTTP API ──
@@ -89,7 +90,7 @@ async function sendWeComMessage({
   return {
     channel: CHANNEL_ID,
     messageId: `agent-${Date.now()}`,
-    chatId,
+    target: { kind: "chat", id: chatId },
   };
 }
 
@@ -358,7 +359,7 @@ export const wecomPlugin: ChannelPlugin<ResolvedWeComAccount> = {
         return {
           channel: CHANNEL_ID,
           messageId: result.messageId!,
-          chatId,
+          target: { kind: "chat", id: chatId },
         };
       }
 
@@ -407,7 +408,7 @@ export const wecomPlugin: ChannelPlugin<ResolvedWeComAccount> = {
           if (text) {
             await sendAgentText({ agent, toUser: target.touser, toParty: target.toparty, toTag: target.totag, chatId: target.chatid, text });
           }
-          return { channel: CHANNEL_ID, messageId: `agent-media-${Date.now()}`, chatId };
+          return { channel: CHANNEL_ID, messageId: `agent-media-${Date.now()}`, target: { kind: "chat", id: chatId } };
         }
       } catch (err) {
         console.warn(`[wecom-outbound] Agent media upload failed, falling back to text:`, err);
@@ -416,7 +417,7 @@ export const wecomPlugin: ChannelPlugin<ResolvedWeComAccount> = {
       // 媒体上传失败，降级为文本 + URL
       const fallbackContent = text ? `${text}\n📎 ${mediaUrl}` : `📎 ${mediaUrl}`;
       await sendAgentText({ agent, toUser: target.touser, toParty: target.toparty, toTag: target.totag, chatId: target.chatid, text: fallbackContent });
-      return { channel: CHANNEL_ID, messageId: `agent-${Date.now()}`, chatId };
+      return { channel: CHANNEL_ID, messageId: `agent-${Date.now()}`, target: { kind: "chat", id: chatId } };
     },
   },
   status: {
@@ -589,78 +590,33 @@ export const wecomPlugin: ChannelPlugin<ResolvedWeComAccount> = {
         ctx.abortSignal.addEventListener("abort", () => resolve(), { once: true });
       });
     },
-    logoutAccount: async ({cfg, accountId}) => {
+    logoutAccount: async ({ accountId }) => {
       const resolvedAccountId = accountId ?? DEFAULT_ACCOUNT_ID;
-      const isMulti = hasMultiAccounts(cfg);
-      let nextCfg = {...cfg} as OpenClawConfig;
-      let cleared = false;
-      let changed = false;
-
-      if (!isMulti) {
-        // 单账号模式：删除顶层 botId/secret
-        const wecomConfig = (cfg.channels?.[CHANNEL_ID] ?? {}) as WeComConfig;
-        const nextWecom = {...wecomConfig};
-
-        if (nextWecom.botId || nextWecom.secret) {
-          delete nextWecom.botId;
-          delete nextWecom.secret;
-          cleared = true;
-          changed = true;
-        }
-
-        if (changed) {
-          if (Object.keys(nextWecom).length > 0) {
-            nextCfg.channels = {...nextCfg.channels, [CHANNEL_ID]: nextWecom};
-          } else {
-            const nextChannels = {...nextCfg.channels};
-            delete (nextChannels as Record<string, unknown>)[CHANNEL_ID];
-            if (Object.keys(nextChannels).length > 0) {
-              nextCfg.channels = nextChannels;
-            } else {
-              delete nextCfg.channels;
+      const mutation = await getWeComRuntime().config.mutateConfigFile({
+        afterWrite: { mode: "auto" },
+        mutate(cfg) {
+          const wecomConfig = cfg.channels?.[CHANNEL_ID] as WeComMultiAccountConfig | undefined;
+          const multi = hasMultiAccounts(cfg);
+          const accountConfig = multi ? wecomConfig?.accounts?.[resolvedAccountId] : wecomConfig;
+          const cleared = Boolean(accountConfig?.botId || accountConfig?.secret);
+          if (accountConfig && cleared) {
+            delete accountConfig.botId;
+            delete accountConfig.secret;
+            if (Object.keys(accountConfig).length === 0) {
+              if (multi) {
+                delete wecomConfig!.accounts![resolvedAccountId];
+                if (Object.keys(wecomConfig!.accounts!).length === 0) delete wecomConfig!.accounts;
+              } else {
+                delete cfg.channels![CHANNEL_ID];
+                if (Object.keys(cfg.channels!).length === 0) delete cfg.channels;
+              }
             }
           }
-        }
-      } else {
-        // 多账号模式：删除指定账号的 botId/secret
-        const wecomConfig = (cfg.channels?.[CHANNEL_ID] ?? {}) as WeComMultiAccountConfig;
-        const accountCfg = wecomConfig.accounts?.[resolvedAccountId];
-
-        if (accountCfg?.botId || accountCfg?.secret) {
-          const nextAccount = {...accountCfg};
-          delete nextAccount.botId;
-          delete nextAccount.secret;
-          cleared = true;
-          changed = true;
-
-          const nextAccounts = { ...wecomConfig.accounts };
-          if (Object.keys(nextAccount).length > 0) {
-            nextAccounts[resolvedAccountId] = nextAccount;
-          } else {
-            delete nextAccounts[resolvedAccountId];
-          }
-
-          nextCfg = {
-            ...cfg,
-            channels: {
-              ...cfg.channels,
-              [CHANNEL_ID]: {
-                ...wecomConfig,
-                accounts: Object.keys(nextAccounts).length > 0 ? nextAccounts : undefined,
-              },
-            },
-          } as OpenClawConfig;
-        }
-      }
-
-      if (changed) {
-        await getWeComRuntime().config.writeConfigFile(nextCfg);
-      }
-
-      const resolved = resolveWeComAccountMulti({ cfg: changed ? nextCfg : cfg, accountId: resolvedAccountId });
-      const loggedOut = !resolved.botId && !resolved.secret;
-
-      return {cleared, envToken: false, loggedOut};
+          const resolved = resolveWeComAccountMulti({ cfg, accountId: resolvedAccountId });
+          return { cleared, envToken: false, loggedOut: !resolved.botId && !resolved.secret };
+        },
+      });
+      return mutation.result!;
     },
   },
 };

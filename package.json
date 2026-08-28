@@ -44,6 +44,9 @@
   },
   "description": "OpenClaw WeCom (企业微信) channel plugin (official by Tencent WeCom team)",
   "openclaw": {
+    "compat": {
+      "pluginApi": ">=2026.8.1-beta.3"
+    },
     "extensions": [
       "./dist/index.js"
     ],
@@ -71,7 +74,7 @@
     "undici": "^7.24.6"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.3.28"
+    "openclaw": ">=2026.8.1-beta.3"
   },
   "peerDependenciesMeta": {
     "openclaw": {
@@ -80,7 +83,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "openclaw": ">=2026.3.28",
+    "openclaw": ">=2026.8.1-beta.3",
     "typescript": "^5.3.3",
     "vitest": "^4.1.1"
   }

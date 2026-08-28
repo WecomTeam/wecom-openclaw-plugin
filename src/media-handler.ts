@@ -115,7 +115,7 @@ export async function downloadAndSaveImages(params: {
         // 如果 SDK 方法失败，回退到原有方式（带超时保护）
         runtime.log?.(`[wecom] SDK download failed, fallback: ${String(sdkError)}`);
         const fetched = await withTimeout(
-          core.channel.media.fetchRemoteMedia({ url: imageUrl }),
+          core.channel.media.readRemoteMediaBuffer({ url: imageUrl }),
           IMAGE_DOWNLOAD_TIMEOUT_MS,
           `Manual image download timed out: ${imageUrl}`,
         ) as { buffer: Buffer; contentType?: string };
@@ -203,10 +203,10 @@ export async function downloadAndSaveFiles(params: {
         fileContentType = type?.mime ?? "application/octet-stream";
         runtime.log?.(`[wecom] File downloaded: size=${fileBuffer.length}, contentType=${fileContentType}, filename=${originalFilename ?? '(none)'}`);
       } catch (sdkError) {
-        // 如果 SDK 方法失败，回退到 fetchRemoteMedia（带超时保护）
+        // 如果 SDK 方法失败，回退到 readRemoteMediaBuffer（带超时保护）
         runtime.log?.(`[wecom] SDK file download failed, fallback: ${String(sdkError)}`);
         const fetched = await withTimeout(
-          core.channel.media.fetchRemoteMedia({ url: fileUrl }),
+          core.channel.media.readRemoteMediaBuffer({ url: fileUrl }),
           FILE_DOWNLOAD_TIMEOUT_MS,
           `Manual file download timed out: ${fileUrl}`,
         ) as { buffer: Buffer; contentType?: string };

@@ -5,7 +5,7 @@
  */
 
 import type { ChannelSetupWizard, ChannelSetupDmPolicy } from "openclaw/plugin-sdk/setup";
-import type { ChannelSetupAdapter } from "openclaw/plugin-sdk/setup";
+import type { ChannelSetupAdapter, ChannelSetupInput } from "openclaw/plugin-sdk/setup";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { addWildcardAllowFrom } from "./openclaw-compat.js";
 import type { WeComConfig } from "./utils.js";
@@ -16,7 +16,10 @@ import { CHANNEL_ID } from "./const.js";
 // ChannelSetupAdapter — 框架用于应用配置输入的适配器
 // ============================================================================
 
-export const wecomSetupAdapter: ChannelSetupAdapter = {
+type WeComSetupInput = ChannelSetupInput & { privateKey?: string };
+
+export const wecomSetupAdapter: ChannelSetupAdapter<WeComSetupInput> = {
+  singleAccountKeysToMove: ["botId", "secret"],
   applyAccountConfig: ({ cfg, input }) => {
     const patch: Partial<WeComConfig> = {};
 
