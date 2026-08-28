@@ -54,11 +54,10 @@ export async function resolveWecomCommandAuthorization(params: {
   const senderAllowed = isWecomSenderAllowed(senderUserId, effectiveAllowFrom);
   const allowAllConfigured = effectiveAllowFrom.some((entry) => normalizeWecomAllowFromEntry(entry) === "*");
   const authorizerConfigured = allowAllConfigured || effectiveAllowFrom.length > 0;
-  const useAccessGroups = cfg.commands?.useAccessGroups !== false;
 
   const commandAuthorized = shouldComputeAuth
     ? core.channel.commands.resolveCommandAuthorizedFromAuthorizers({
-      useAccessGroups,
+      useAccessGroups: true,
       authorizers: [{ configured: authorizerConfigured, allowed: senderAllowed }],
     })
     : undefined;
@@ -98,6 +97,6 @@ export function buildWecomUnauthorizedCommandPrompt(params: {
     `管理员全放开：${policyCmd("open")}`,
     `管理员放行该用户：${policyCmd("allowlist")}`,
     `然后设置白名单：${allowCmd(JSON.stringify([user]))}`,
-    `如果仍被拦截：检查 commands.useAccessGroups/访问组`,
+    `如果仍被拦截：检查频道访问策略和命令授权`,
   ].join("\n");
 }

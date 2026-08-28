@@ -8,11 +8,8 @@
  */
 
 import type { WeComMediaType, WSClient, WsFrameHeaders } from "@wecom/aibot-node-sdk";
-import {
-  loadOutboundMediaFromUrl,
-  detectMime,
-  type WebMediaResult,
-} from "./openclaw-compat.js";
+import { loadWebMediaRaw } from "openclaw/plugin-sdk/web-media";
+import { detectMime } from "openclaw/plugin-sdk/media-mime";
 import {
   IMAGE_MAX_BYTES,
   VIDEO_MAX_BYTES,
@@ -92,7 +89,7 @@ export function detectWeComMediaType(mimeType: string): WeComMediaType {
  * 从 mediaUrl 加载媒体文件
  *
  * 支持远程 URL（http/https）和本地路径（file:// 或绝对路径），
- * 利用 openclaw plugin-sdk 的 loadOutboundMediaFromUrl 统一处理。
+ * 利用 openclaw plugin-sdk 的 loadWebMediaRaw 统一处理。
  *
  * @param mediaUrl - 媒体文件的 URL 或本地路径
  * @param mediaLocalRoots - 允许读取本地文件的安全白名单目录
@@ -102,11 +99,11 @@ export async function resolveMediaFile(
   mediaUrl: string,
   mediaLocalRoots?: readonly string[],
 ): Promise<ResolvedMedia> {
-  // 使用兼容层加载媒体文件（优先 SDK，不可用时 fallback）
+  // 使用 SDK 的受限媒体加载入口，不回退到未经检查的文件或网络读取。
   // 传入足够大的 maxBytes，由我们自己在后续步骤做大小检查
-  const result: WebMediaResult = await loadOutboundMediaFromUrl(mediaUrl, {
+  const result = await loadWebMediaRaw(mediaUrl, {
     maxBytes: ABSOLUTE_MAX_BYTES,
-    mediaLocalRoots,
+    localRoots: mediaLocalRoots,
   });
 
   if (!result.buffer || result.buffer.length === 0) {
@@ -121,7 +118,7 @@ export async function resolveMediaFile(
     contentType === "application/octet-stream" ||
     contentType === "text/plain"
   ) {
-    const detected = await detectMime(result.buffer);
+    const detected = await detectMime({ buffer: result.buffer });
     if (detected) {
       contentType = detected;
     }

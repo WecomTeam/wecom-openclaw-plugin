@@ -1,3 +1,5 @@
+> This source version requires OpenClaw **2026.8.1-beta.3 or later** for the current channel inbound and media APIs. Upgrade the host before installing it; older hosts can continue using the published plugin 2026.8.17. No plugin release is created by this change.
+
 English | [中文版](./README.zh.md)
 
 > 💡 **快速上手指引 & 交流群**
@@ -77,7 +79,7 @@ The plugin includes the `wecom-cli` tool and corresponding Skills, covering the 
 
 ### Requirements
 
-- OpenClaw `>= 2026.3.28`
+- OpenClaw `>= 2026.8.1-beta.3`
 
 ### Quick Install
 

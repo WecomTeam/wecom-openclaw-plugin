@@ -1,3 +1,4 @@
+import { resolveInboundSessionEnvelopeContext, toInboundMediaFacts } from "openclaw/plugin-sdk/channel-inbound";
 /**
  * WeCom Agent Webhook 处理器
  * 处理 XML 格式回调
@@ -461,13 +462,10 @@ async function processAgentMessage(params: {
 
     // 构建上下文
     const fromLabel = isGroup ? `group:${peerId}` : `user:${fromUser}`;
-    const storePath = core.channel.session.resolveStorePath(config.session?.store, {
-        agentId: route.agentId,
-    });
-    const envelopeOptions = core.channel.reply.resolveEnvelopeFormatOptions(config);
-    const previousTimestamp = core.channel.session.readSessionUpdatedAt({
-        storePath,
-        sessionKey: route.sessionKey,
+    const { envelopeOptions, previousTimestamp } = resolveInboundSessionEnvelopeContext({
+      cfg: config,
+      agentId: route.agentId,
+      sessionKey: route.sessionKey,
     });
     const body = core.channel.reply.formatAgentEnvelope({
         channel: "WeCom",
@@ -499,49 +497,31 @@ async function processAgentMessage(params: {
         return;
     }
 
-    const ctxPayload = core.channel.reply.finalizeInboundContext({
-        Body: body,
-        RawBody: finalContent,
-        CommandBody: finalContent,
-        Attachments: attachments.length > 0 ? attachments : undefined,
-        From: isGroup ? `wecom:group:${peerId}` : `wecom:${fromUser}`,
-        // 使用 wecom-agent: 前缀标记 Agent 会话，确保 outbound 路由不会混入 Bot WS 发送路径。
-        // resolveWecomTarget 已支持剥离 wecom-agent: 前缀（target.ts L41），解析结果不变。
-        To: `wecom-agent:${fromUser}`,
-        SessionKey: route.sessionKey,
-        AccountId: route.accountId,
-        ChatType: isGroup ? "group" : "direct",
-        ConversationLabel: fromLabel,
-        SenderName: fromUser,
-        SenderId: fromUser,
-        Provider: CHANNEL_ID,
-        Surface: "webchat",
-        OriginatingChannel: CHANNEL_ID,
-        // 标记为 Agent 会话的回复路由目标，避免与 Bot 会话混淆：
-        // - 用于让 /new /reset 这类命令回执不被 Bot 侧策略拦截
-        // - 群聊场景也统一路由为私信触发者（与 deliver 策略一致）
-        OriginatingTo: `wecom-agent:${fromUser}`,
-        CommandAuthorized: authz.commandAuthorized ?? true,
-        MediaPath: mediaPath,
-        MediaType: mediaType,
-        MediaUrl: mediaPath,
+    const ctxPayload = core.channel.inbound.buildContext({
+      channel: "wecom",
+      accountId: route.accountId,
+      surface: "webchat",
+      from: isGroup ? `wecom:group:${peerId}` : `wecom:${fromUser}`,
+      sender: { id: fromUser, name: fromUser },
+      conversation: { kind: isGroup ? "group" : "direct", id: peerId, label: fromLabel },
+      route: { ...route, routeSessionKey: route.sessionKey },
+      // Agent replies remain DMs and must not enter the Bot WebSocket route.
+      reply: { to: `wecom-agent:${fromUser}` },
+      message: { body, rawBody: finalContent, commandBody: finalContent },
+      access: { commands: { authorized: authz.commandAuthorized ?? true } },
+      media: toInboundMediaFacts(mediaPath ? [{ path: mediaPath, contentType: mediaType }] : []),
+      extra: { Attachments: attachments.length > 0 ? attachments : undefined },
     });
 
-    // 记录会话
-    await core.channel.session.recordInboundSession({
-        storePath,
-        sessionKey: ctxPayload.SessionKey ?? route.sessionKey,
-        ctx: ctxPayload,
-        onRecordError: (err: unknown) => {
-            error?.(`[wecom-agent] session record failed: ${String(err)}`);
-        },
-    });
-
-    // 调度回复
-    await core.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-        ctx: ctxPayload,
+    // 核心在调度回复前记录会话。
+    await core.channel.inbound.dispatch({
+      channel: "wecom",
+      accountId: route.accountId,
+      route,
+      ctxPayload,
+      record: { onRecordError: (err: unknown) => error?.(`[wecom-agent] session record failed: ${String(err)}`) },
         cfg: config,
-        dispatcherOptions: {
+        delivery: {
             deliver: async (payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string }, info: { kind: string }) => {
                 let text = payload.text ?? "";
 

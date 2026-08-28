@@ -32,7 +32,7 @@ const plugin = {
           `[wecom-cli:tool] registerTool ctx: sessionKey="${ctx.sessionKey}", ` +
           `messageChannel="${ctx.messageChannel}", agentAccountId="${ctx.agentAccountId}"`,
         );
-        return createWeComCliTool({ accountId: ctx.agentAccountId });
+        return createWeComCliTool({ accountId: ctx.agentAccountId, getRuntimeConfig: ctx.getRuntimeConfig });
       },
       { name: CLI_TOOL_NAME },
     );
