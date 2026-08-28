@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createWeComCliTool, prepareCliArguments } from "./tool.js";
 
 describe("wecom-cli tool arguments", () => {
@@ -38,5 +38,21 @@ describe("wecom-cli tool arguments", () => {
     const params = { args: { command: "sheet create" } };
 
     expect(prepareCliArguments(params)).toBe(params);
+  });
+});
+
+
+describe("wecom-cli runtime config", () => {
+  it("reads refreshed config on every execution before resolving credentials", async () => {
+    const getRuntimeConfig = vi.fn()
+      .mockReturnValueOnce({})
+      .mockReturnValueOnce({ channels: { wecom: { accounts: { work: {}, personal: {} } } } });
+    const tool = createWeComCliTool({ getRuntimeConfig });
+
+    const missingCredentials = await tool.execute("first", { args: ["contact", "list"] });
+    expect(missingCredentials.content[0].text).toContain("未配置 botId / secret");
+    const missingAccount = await tool.execute("second", { args: ["contact", "list"] });
+    expect(missingAccount.content[0].text).toContain("缺少账号上下文");
+    expect(getRuntimeConfig).toHaveBeenCalledTimes(2);
   });
 });

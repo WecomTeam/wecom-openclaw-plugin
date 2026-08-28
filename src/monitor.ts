@@ -135,7 +135,7 @@ function buildMediaOversizeHintText(err: MediaOversizeError): string {
  * }
  */
 async function getExtendedMediaLocalRoots(config?: WeComConfig): Promise<string[]> {
-  // 从兼容层获取默认白名单（内部已处理低版本 SDK 的 fallback）
+  // 保留插件的本地媒体根目录，并由 SDK 在读取时校验。
   const defaults = await getDefaultMediaLocalRoots();
   const roots: string[] = [...defaults];
 

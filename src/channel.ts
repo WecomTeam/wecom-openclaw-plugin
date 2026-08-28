@@ -3,7 +3,7 @@ import {
   type ChannelPlugin,
   type OpenClawConfig,
 } from "openclaw/plugin-sdk/core";
-import { buildAccountScopedDmSecurityPolicy, type ChannelSecurityDmPolicyCompat } from "./openclaw-compat.js";
+import { buildAccountScopedDmSecurityPolicy } from "openclaw/plugin-sdk/channel-policy";
 import type { ChannelStatusIssue } from "openclaw/plugin-sdk/channel-contract";
 
 import { formatPairingApproveHint, DEFAULT_ACCOUNT_ID } from './openclaw-compat.js'
@@ -20,7 +20,7 @@ import {
 } from "./accounts.js";
 import type { WeComMultiAccountConfig } from "./accounts.js";
 import { CHANNEL_ID, TEXT_CHUNK_LIMIT, WEBHOOK_PATHS } from "./const.js";
-import { uploadAndSendMedia } from "./media-uploader.js";
+import { resolveMediaFile, uploadAndSendMedia } from "./media-uploader.js";
 import { registerAgentWebhookTarget, deregisterAgentWebhookTarget } from "./agent/webhook.js";
 import { resolveWecomTarget } from "./target.js";
 import { sendText as sendAgentText, sendMedia as sendAgentMedia, uploadMedia as uploadAgentMedia } from "./agent/api-client.js";
@@ -255,7 +255,7 @@ export const wecomPlugin: ChannelPlugin<ResolvedWeComAccount> = {
         approveHint: formatPairingApproveHint(CHANNEL_ID),
         normalizeEntry: (raw) => raw.replace(new RegExp(`^${CHANNEL_ID}:`, "i"), "").trim(),
       });
-      return result as ChannelSecurityDmPolicyCompat;
+      return result;
     },
     collectWarnings: ({cfg, accountId}) => {
       const account = resolveWeComAccountMulti({ cfg, accountId });
@@ -386,10 +386,7 @@ export const wecomPlugin: ChannelPlugin<ResolvedWeComAccount> = {
 
       // 尝试下载并上传媒体到企微
       try {
-        const mediaResponse = await fetch(mediaUrl);
-        if (mediaResponse.ok) {
-          const buffer = Buffer.from(await mediaResponse.arrayBuffer());
-          const filename = mediaUrl.split('/').pop() || 'file.bin';
+        const { buffer, fileName: filename } = await resolveMediaFile(mediaUrl, mediaLocalRoots);
           const mediaId = await uploadAgentMedia({
             agent,
             type: 'file',
@@ -409,7 +406,6 @@ export const wecomPlugin: ChannelPlugin<ResolvedWeComAccount> = {
             await sendAgentText({ agent, toUser: target.touser, toParty: target.toparty, toTag: target.totag, chatId: target.chatid, text });
           }
           return { channel: CHANNEL_ID, messageId: `agent-media-${Date.now()}`, target: { kind: "chat", id: chatId } };
-        }
       } catch (err) {
         console.warn(`[wecom-outbound] Agent media upload failed, falling back to text:`, err);
       }
