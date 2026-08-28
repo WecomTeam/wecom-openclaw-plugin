@@ -536,15 +536,17 @@ openclaw pairing approve wecom <CODE>  # 审批配对请求
 openclaw cron add \
   --name "daily-report" \
   --agent main \
+  --session isolated \
   --cron "0 9 * * 1-5" \
   --tz "Asia/Shanghai" \
   --message "Good morning! Here is your daily briefing." \
   --announce \
   --channel wecom \
-  --to "party:1"
+  --to "party:1" \
+  --account main
 ```
 
-> **说明**：`--announce` 启用投递模式（将 AI 回复广播到目标会话）。使用 `--no-deliver` 保持内部输出。已废弃的 `--deliver` 标志是 `--announce` 的别名。
+> **说明**：`--agent` 指定执行任务的 OpenClaw 智能体。`--account` 指定用于投递的企业微信账号，请将 `main` 替换为已配置的账号 ID。两者都不是企业微信应用的数字 `agentId`。`--announce` 启用任务执行器对最终回复的兜底投递；`--no-deliver` 仅关闭该兜底投递，不会阻止智能体通过工具发送消息。
 
 常用 CLI 命令：
 
@@ -559,45 +561,7 @@ openclaw cron runs --id <id>    # 查看运行历史
 openclaw cron edit <id> --message "New prompt"  # 编辑任务
 ```
 
-### 方式二：编辑 `jobs.json`（需重启 gateway）
-
-文件路径：`~/.openclaw/cron/jobs.json`
-
-```json
-{
-  "version": 1,
-  "jobs": [
-    {
-      "id": "daily-report",
-      "name": "Daily Report",
-      "agentId": "main",
-      "enabled": true,
-      "schedule": { "kind": "cron", "expr": "0 9 * * 1-5", "tz": "Asia/Shanghai" },
-      "sessionTarget": "isolated",
-      "wakeMode": "now",
-      "payload": {
-        "kind": "agentTurn",
-        "message": "Generate today's briefing and send it."
-      },
-      "delivery": {
-        "mode": "announce",
-        "channel": "wecom",
-        "to": "party:1",
-        "accountId": "main"
-      },
-      "state": {}
-    }
-  ]
-}
-```
-
-编辑后重启 gateway：
-
-```shell
-openclaw gateway restart
-```
-
-### 方式三：通过对话创建（立即生效）
+### 方式二：通过对话创建（立即生效）
 
 可以直接在企业微信会话中向 AI 智能体提问：
 
@@ -609,7 +573,7 @@ openclaw gateway restart
 
 - Cron 任务使用 **Agent 出站**路径 — 必须配置 Agent 模式（`corpId` / `corpSecret` / `agentId`）。
 - 服务器 IP 必须在企业微信可信 IP 白名单内，或配置 `egressProxyUrl` 使用固定出站代理。
-- 通过 CLI 或对话 API 创建的任务立即生效。手动编辑 `jobs.json` 需要执行 `openclaw gateway restart`。
+- 请通过 CLI、Gateway API 或智能体对话创建和修改任务。修改会立即生效，无需重启 Gateway。
 - 多账号场景下，将 `delivery.accountId` 设为目标账号（如 `"main"`、`"support"`）。
 
 ---
