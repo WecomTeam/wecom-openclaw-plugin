@@ -16,7 +16,7 @@ import { CHANNEL_ID } from "./const.js";
 // ChannelSetupAdapter — 框架用于应用配置输入的适配器
 // ============================================================================
 
-type WeComSetupInput = ChannelSetupInput & { privateKey?: string };
+type WeComSetupInput = Omit<ChannelSetupInput, "privateKey"> & { privateKey?: string };
 
 export const wecomSetupAdapter: ChannelSetupAdapter<WeComSetupInput> = {
   singleAccountKeysToMove: ["botId", "secret"],
