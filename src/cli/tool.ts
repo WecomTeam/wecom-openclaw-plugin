@@ -11,9 +11,10 @@
 
 import * as path from "node:path";
 import { spawn } from "./process-launcher.js";
-import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
+import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk/core";
 import { getWeComRuntime } from "../runtime.js";
 import { hasMultiAccounts, resolveWeComAccountMulti } from "../accounts.js";
+import type { ResolvedWeComAccount } from "../utils.js";
 import { resolveStateDir } from "../state-dir-resolve.js";
 import {
   CLI_ENV_PASSTHROUGH,
@@ -37,6 +38,10 @@ import { BoundedOutputCollector } from "./process-output.js";
 export interface CreateWeComCliToolOptions {
   /** 当前会话对应的账号 ID（来自 ctx.agentAccountId） */
   accountId?: string;
+  /** 已解析账号；供插件内部调用，避免依赖运行时配置存储。 */
+  resolvedAccount?: ResolvedWeComAccount;
+  /** 注册工具时捕获的插件运行时，避免工具隔离加载导致模块级 store 丢失。 */
+  runtime?: PluginRuntime;
 }
 
 interface CliParams {
@@ -83,10 +88,37 @@ type ResolvedBot = { botId: string; secret: string; accountId: string; env: CliE
  * 多账号场景下上下文丢失时回退，等于拿 A 企业的凭据调 B 企业的接口。
  * 宁可失败也不能串号—— 只有单账号模式才允许回退。
  */
-function resolveBot(accountId: string | undefined): ResolvedBot {
+function resolvedBotFromAccount(account: ResolvedWeComAccount): ResolvedBot {
+  const botId = account.botId?.trim();
+  const secret = account.secret?.trim();
+  if (!botId || !secret) {
+    throw new CliAuthError(
+      `企业微信账号 "${account.accountId}" 未配置 botId / secret，` +
+        "请检查 openclaw 配置 `channels.wecom`",
+    );
+  }
+
+  const rawCliCfg = (account.config as Record<string, unknown> | undefined)?.cli as
+    | { env?: Record<string, string> }
+    | undefined;
+  const env: CliEnvOverrides = {};
+  for (const key of CLI_ENV_PASSTHROUGH) {
+    const v = rawCliCfg?.env?.[key];
+    if (typeof v === "string" && v.trim()) env[key] = v.trim();
+  }
+  return { botId, secret, accountId: account.accountId, env };
+}
+
+function resolveBot(
+  accountId: string | undefined,
+  resolvedAccount?: ResolvedWeComAccount,
+  runtime?: PluginRuntime,
+): ResolvedBot {
+  if (resolvedAccount) return resolvedBotFromAccount(resolvedAccount);
+
   let cfg: OpenClawConfig;
   try {
-    cfg = getWeComRuntime().config.loadConfig();
+    cfg = (runtime ?? getWeComRuntime()).config.loadConfig();
   } catch {
     throw new CliAuthError("插件运行时未初始化，无法读取 openclaw 配置");
   }
@@ -101,34 +133,21 @@ function resolveBot(accountId: string | undefined): ResolvedBot {
     );
   }
 
-  const resolved = resolveWeComAccountMulti({ cfg, accountId: id ?? null });
-  const botId = resolved.botId?.trim();
-  const secret = resolved.secret?.trim();
-
-  if (!botId || !secret) {
-    throw new CliAuthError(
-      `企业微信账号 "${resolved.accountId}" 未配置 botId / secret，` +
-        "请检查 openclaw 配置 `channels.wecom`",
-    );
-  }
-
-  // 端点覆盖（仅联调用；在未启用 custom-endpoint feature 的正式包上不生效）
-  const rawCliCfg = (resolved.config as Record<string, unknown> | undefined)?.cli as
-    | { binPath?: string; env?: Record<string, string> }
-    | undefined;
-  const env: CliEnvOverrides = {};
-  for (const key of CLI_ENV_PASSTHROUGH) {
-    const v = rawCliCfg?.env?.[key];
-    if (typeof v === "string" && v.trim()) env[key] = v.trim();
-  }
-
-  return { botId, secret, accountId: resolved.accountId, env };
+  return resolvedBotFromAccount(resolveWeComAccountMulti({ cfg, accountId: id ?? null }));
 }
 
-function resolveBinPath(accountId: string | undefined): { binPath: string; source: string } {
+function resolveBinPath(
+  accountId: string | undefined,
+  resolvedAccount?: ResolvedWeComAccount,
+  runtime?: PluginRuntime,
+): { binPath: string; source: string } {
   let explicit: string | undefined;
-  try {
-    const cfg = getWeComRuntime().config.loadConfig();
+  if (resolvedAccount) {
+    explicit = ((resolvedAccount.config as Record<string, unknown> | undefined)?.cli as
+      | { binPath?: string }
+      | undefined)?.binPath;
+  } else try {
+    const cfg = (runtime ?? getWeComRuntime()).config.loadConfig();
     const resolved = resolveWeComAccountMulti({ cfg, accountId: accountId ?? null });
     explicit = ((resolved.config as Record<string, unknown> | undefined)?.cli as
       | { binPath?: string }
@@ -357,8 +376,12 @@ export function createWeComCliTool(options: CreateWeComCliToolOptions = {}) {
       let binPath: string;
       let binSource: string;
       try {
-        bot = resolveBot(accountId);
-        ({ binPath, source: binSource } = resolveBinPath(accountId));
+        bot = resolveBot(accountId, options.resolvedAccount, options.runtime);
+        ({ binPath, source: binSource } = resolveBinPath(
+          accountId,
+          options.resolvedAccount,
+          options.runtime,
+        ));
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : String(err));
       }
