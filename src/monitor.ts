@@ -71,6 +71,7 @@ import {
 import { maskTemplateCardBlocks } from "./template-card-parser.js";
 import type { ResolvedWeComAccount, WeComConfig } from "./utils.js";
 import { PLUGIN_VERSION } from "./version.js";
+import { resolveWeComIdentity } from "./identity-resolver.js";
 
 // ============================================================================
 // 消息条目类型
@@ -201,7 +202,7 @@ export { sendWeComReply } from "./message-sender.js";
  * 构建消息上下文
  * @returns 消息上下文对象
  */
-function buildMessageContext(
+async function buildMessageContext(
   frame: WsFrame,
   account: ResolvedWeComAccount,
   config: OpenClawConfig,
@@ -246,8 +247,16 @@ function buildMessageContext(
   }
   // ===== 动态 Agent 路由注入结束 =====
 
-  // 构建会话标签
-  const fromLabel = chatType === "group" ? `group:${chatId}` : `user:${body.from.userid}`;
+  const identity = await resolveWeComIdentity({
+    account,
+    chatType,
+    chatId,
+    senderId: body.from.userid,
+    log: runtime?.log,
+  });
+  const conversationLabel =
+    identity.conversationName ??
+    (chatType === "group" ? `group:${chatId}` : `user:${body.from.userid}`);
 
   // 当只有媒体没有文本时，使用占位符标识媒体类型
   const hasImages = mediaList.some((m) => m.contentType?.startsWith("image/"));
@@ -283,12 +292,14 @@ function buildMessageContext(
       chatType === "group" ? `${CHANNEL_ID}:group:${chatId}` : `${CHANNEL_ID}:${body.from.userid}`,
     To: `${CHANNEL_ID}:${chatId}`,
     SenderId: body.from.userid,
+    SenderName: identity.senderName,
 
     SessionKey: route.sessionKey,
     AccountId: route.accountId,
 
     ChatType: chatType,
-    ConversationLabel: fromLabel,
+    ConversationLabel: conversationLabel,
+    GroupSubject: chatType === "group" ? identity.conversationName ?? chatId : undefined,
 
     Timestamp: Date.now(),
 
@@ -489,8 +500,8 @@ async function finishThinkingStream(ctx: DeliverContext): Promise<void> {
  * 路由消息到核心处理流程并处理回复
  */
 async function routeAndDispatchMessage(params: {
-  ctxPayload: ReturnType<typeof buildMessageContext>["ctxPayload"];
-  route: ReturnType<typeof buildMessageContext>["route"];
+  ctxPayload: Awaited<ReturnType<typeof buildMessageContext>>["ctxPayload"];
+  route: Awaited<ReturnType<typeof buildMessageContext>>["route"];
   storePath: string;
   chatId: string;
   chatType: string;
@@ -857,7 +868,7 @@ async function processWeComMessageNow(entry: WeComMessageEntry): Promise<void> {
     storePath,
     chatId: resolvedChatId,
     chatType,
-  } = buildMessageContext(frame, account, config, text, mediaList, quoteContent, runtime);
+  } = await buildMessageContext(frame, account, config, text, mediaList, quoteContent, runtime);
 
   // runtime.log?.(`[plugin -> openclaw] body=${text}, mediaPaths=${JSON.stringify(mediaList.map(m => m.path))}${quoteContent ? `, quote=${quoteContent}` : ''}`);
 

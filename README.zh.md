@@ -185,6 +185,35 @@ openclaw gateway restart
 | `channels.wecom.groupAllowFrom` | 群聊白名单（群 ID） | — | `[]` |
 | `channels.wecom.groups` | 按群配置（如发送者白名单） | — | `{}` |
 
+#### 可读的会话名称
+
+插件通过内置的 `wecom-cli message aibot sessions list` 命令解析近期单聊和群聊名称，
+并将结果缓存在有界的 30 分钟内存缓存中。名称查询失败不会阻断入站消息；无法解析时
+仍使用原始 ID。
+
+静态映射优先级更高，适合配置未出现在近期会话列表中的重要用户或群聊：
+
+```json
+{
+  "channels": {
+    "wecom": {
+      "identity": {
+        "autoResolve": true,
+        "userNames": {
+          "userid-example": "示例用户"
+        },
+        "groupNames": {
+          "chatid-example": "示例群聊"
+        }
+      }
+    }
+  }
+}
+```
+
+解析出的名称会写入 OpenClaw 的 `SenderName`、`GroupSubject` 和
+`ConversationLabel`，使 Agent 上下文和会话列表显示可读名称。
+
 #### 媒体设置
 
 | 配置路径 | 说明 | 默认值 |

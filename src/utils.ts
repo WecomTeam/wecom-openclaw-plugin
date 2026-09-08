@@ -20,6 +20,15 @@ export interface WeComGroupConfig {
   allowFrom?: Array<string | number>;
 }
 
+export interface WeComIdentityConfig {
+  /** 自动从 wecom-cli 最近会话列表补全名称，默认开启。 */
+  autoResolve?: boolean;
+  /** userid → 可读姓名；配置值优先于自动解析。 */
+  userNames?: Record<string, string>;
+  /** chatid → 可读群名；配置值优先于自动解析。 */
+  groupNames?: Record<string, string>;
+}
+
 /**
  * 企业微信配置类型
  */
@@ -51,6 +60,8 @@ export interface WeComConfig {
   dynamicAgents?: WecomDynamicAgentsConfig;
   /** wecom-cli tool 配置 */
   cli?: WecomCliConfig;
+  /** 入站会话与发送者名称解析配置。 */
+  identity?: WeComIdentityConfig;
 
   // ── Webhook 模式扩展字段 ──────────────────────────────────────────
   /** 连接模式：webhook | websocket（默认 websocket） */
