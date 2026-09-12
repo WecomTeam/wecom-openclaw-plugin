@@ -51,7 +51,10 @@ import {
 import { uploadAndSendMedia } from "./media-uploader.js";
 import { parseMessageContent, type MessageBody } from "./message-parser.js";
 import { sendWeComReply, sendWeComReplyNonBlocking, StreamExpiredError } from "./message-sender.js";
-import { enqueueWeComChatTask } from "./chat-queue.js";
+import {
+  enqueueWeComChatTask,
+  type WeComChatTaskAdoptionLifecycle,
+} from "./chat-queue.js";
 import { getDefaultMediaLocalRoots, resolveStateDir } from "./openclaw-compat.js";
 import { getWeComRuntime } from "./runtime.js";
 import {
@@ -501,6 +504,7 @@ async function routeAndDispatchMessage(params: {
   state: MessageState;
   runtime: RuntimeEnv;
   onCleanup: () => void;
+  turnAdoptionLifecycle: WeComChatTaskAdoptionLifecycle;
 }): Promise<void> {
   const {
     ctxPayload,
@@ -515,6 +519,7 @@ async function routeAndDispatchMessage(params: {
     state,
     runtime,
     onCleanup,
+    turnAdoptionLifecycle,
   } = params;
   const core = getWeComRuntime();
   const ctx: DeliverContext = { wsClient, frame, state, account, runtime };
@@ -550,16 +555,25 @@ async function routeAndDispatchMessage(params: {
       },
     });
 
+    // Newer OpenClaw runtimes use this lifecycle to claim ownership before the
+    // agent run settles. Older compatible runtimes ignore the additional field.
+    const replyOptions = {
+      turnAdoptionLifecycle,
+      // 打印 LLM 返回的原始分片内容（在 openclaw 核心对 MEDIA: 指令解析之前），
+      // 用于排查流式分片导致 MEDIA 指令被切断、识别丢失等问题
+      // onPartialReply: (payload: unknown) => {
+      // runtime.log?.(`[openclaw -> plugin][partial] payload=${JSON.stringify(payload)}`);
+      // },
+    } as NonNullable<
+      Parameters<
+        typeof core.channel.reply.dispatchReplyWithBufferedBlockDispatcher
+      >[0]["replyOptions"]
+    > & { turnAdoptionLifecycle: WeComChatTaskAdoptionLifecycle };
+
     await core.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
       ctx: ctxPayload,
       cfg: config,
-      replyOptions: {
-        // 打印 LLM 返回的原始分片内容（在 openclaw 核心对 MEDIA: 指令解析之前），
-        // 用于排查流式分片导致 MEDIA 指令被切断、识别丢失等问题
-        // onPartialReply: (payload: unknown) => {
-        // runtime.log?.(`[openclaw -> plugin][partial] payload=${JSON.stringify(payload)}`);
-        // },
-      },
+      replyOptions,
       dispatcherOptions: {
         onReplyStart: async () => {
           if (!isShowThink && state.streamId && !state.accumulatedText) {
@@ -816,9 +830,12 @@ async function prepareWeComMessage(params: {
  * 处理企业微信消息（Step 5-7）
  *
  * 接收解析后的消息数据，执行初始化状态、发送 thinking、路由到核心。
- * 同一会话中的消息通过串行队列保证按序执行。
+ * 同一会话中的消息按序进入核心；核心接管后由 active-run 策略继续调度。
  */
-async function processWeComMessageNow(entry: WeComMessageEntry): Promise<void> {
+async function processWeComMessageNow(
+  entry: WeComMessageEntry,
+  turnAdoptionLifecycle: WeComChatTaskAdoptionLifecycle,
+): Promise<void> {
   const {
     frame,
     account,
@@ -875,6 +892,7 @@ async function processWeComMessageNow(entry: WeComMessageEntry): Promise<void> {
       state,
       runtime,
       onCleanup: cleanupState,
+      turnAdoptionLifecycle,
     });
   } catch (err) {
     runtime.error?.(`[wecom][plugin] Message processing failed: ${String(err)}`);
@@ -1082,13 +1100,13 @@ export async function monitorWeComProvider(options: WeComMonitorOptions): Promis
         });
         if (!entry) return;
 
-        // 按 accountId:chatId 串行排队，保证同一会话消息按序处理，
-        // 避免并发触发 OpenClaw 前台回复栅栏（ForegroundReplyFence）互相抑制
-        // 导致较早消息的流式回复被丢弃、thinking 流无法 finish 而一直 loading。
+        // 按 accountId:chatId 串行准入，避免并发初始化同一会话；核心接管
+        // 当前 turn 后即释放准入，让 answer/reset 进入核心 active-run 策略。
         const { status } = enqueueWeComChatTask({
           accountId: entry.account.accountId,
           chatId: entry.chatId,
-          task: () => processWeComMessageNow(entry),
+          task: (turnAdoptionLifecycle) =>
+            processWeComMessageNow(entry, turnAdoptionLifecycle),
         });
 
         if (status === "queued") {
@@ -1147,11 +1165,12 @@ export async function monitorWeComProvider(options: WeComMonitorOptions): Promis
           wsClient,
         });
         if (entry) {
-          // 事件回调与普通消息共用同一会话队列，保证严格串行
+          // 事件回调与普通消息共用同一会话准入队列。
           enqueueWeComChatTask({
             accountId: entry.account.accountId,
             chatId: entry.chatId,
-            task: () => processWeComMessageNow(entry),
+            task: (turnAdoptionLifecycle) =>
+              processWeComMessageNow(entry, turnAdoptionLifecycle),
           });
         }
       } catch (err) {
