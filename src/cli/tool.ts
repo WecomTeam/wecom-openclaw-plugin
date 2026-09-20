@@ -86,7 +86,8 @@ type ResolvedBot = { botId: string; secret: string; accountId: string; env: CliE
 function resolveBot(accountId: string | undefined): ResolvedBot {
   let cfg: OpenClawConfig;
   try {
-    cfg = getWeComRuntime().config.loadConfig();
+    // OpenClaw 2026.9.x removed runtime.config.loadConfig; current() is the documented replacement
+    cfg = getWeComRuntime().config.current();
   } catch {
     throw new CliAuthError("插件运行时未初始化，无法读取 openclaw 配置");
   }
@@ -128,7 +129,8 @@ function resolveBot(accountId: string | undefined): ResolvedBot {
 function resolveBinPath(accountId: string | undefined): { binPath: string; source: string } {
   let explicit: string | undefined;
   try {
-    const cfg = getWeComRuntime().config.loadConfig();
+    // OpenClaw 2026.9.x removed runtime.config.loadConfig; current() is the documented replacement
+    const cfg = getWeComRuntime().config.current();
     const resolved = resolveWeComAccountMulti({ cfg, accountId: accountId ?? null });
     explicit = ((resolved.config as Record<string, unknown> | undefined)?.cli as
       | { binPath?: string }
