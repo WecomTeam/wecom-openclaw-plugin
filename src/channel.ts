@@ -113,13 +113,13 @@ export const wecomPlugin: ChannelPlugin<ResolvedWeComAccount> = {
   pairing: {
     idLabel: "wecomUserId",
     normalizeAllowEntry: (entry) => entry.replace(new RegExp(`^(${CHANNEL_ID}|user):`, "i"), "").trim(),
-    notifyApproval: async ({ cfg, id }) => {
-      // sendWeComMessage({
-      //   to: id,
-      //   content: " pairing approved",
-      //   accountId: cfg.accountId,
-      // });
-      // Pairing approved for user
+    notifyApproval: async ({ cfg, id, accountId }) => {
+      await sendWeComMessage({
+        to: id,
+        content: "配对审批已通过，现在可以开始聊天了。",
+        accountId: accountId ?? resolveDefaultWeComAccountId(cfg),
+        cfg,
+      });
     },
   },
   setupWizard: wecomSetupWizard,
