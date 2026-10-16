@@ -164,6 +164,7 @@ openclaw gateway restart
 | `channels.wecom.secret` | 企业微信机器人 secret | — | — |
 | `channels.wecom.websocketUrl` | WebSocket 端点 | — | `wss://openws.work.weixin.qq.com` |
 | `channels.wecom.sendThinkingMessage` | 发送"思考中"占位消息 | `true` / `false` | `true` |
+| `channels.wecom.streamPartialReply` | 生成过程中实时推送回答（关闭则等整段生成完再显示） | `true` / `false` | `true` |
 
 #### Webhook 模式（`connectionMode: "webhook"`）
 
