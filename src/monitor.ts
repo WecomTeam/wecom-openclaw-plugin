@@ -1,3 +1,4 @@
+import { toInboundMediaFacts } from "openclaw/plugin-sdk/channel-inbound";
 /**
  * 企业微信 WebSocket 监控器主模块
  *
@@ -134,7 +135,7 @@ function buildMediaOversizeHintText(err: MediaOversizeError): string {
  * }
  */
 async function getExtendedMediaLocalRoots(config?: WeComConfig): Promise<string[]> {
-  // 从兼容层获取默认白名单（内部已处理低版本 SDK 的 fallback）
+  // 保留插件的本地媒体根目录，并由 SDK 在读取时校验。
   const defaults = await getDefaultMediaLocalRoots();
   const roots: string[] = [...defaults];
 
@@ -259,61 +260,24 @@ function buildMessageContext(
         : MEDIA_DOCUMENT_PLACEHOLDER
       : "");
 
-  // 构建多媒体数组
-  const mediaPaths = mediaList.length > 0 ? mediaList.map((m) => m.path) : undefined;
-  const mediaTypes =
-    mediaList.length > 0
-      ? (mediaList.map((m) => m.contentType).filter(Boolean) as string[])
-      : undefined;
-
-  // 使用 route.agentId 解析 storePath（多 agent 场景下 session 路径隔离）
-  const storePath = core.channel.session.resolveStorePath(config.session?.store, {
-    agentId: route.agentId,
+  const ctxPayload = core.channel.inbound.buildContext({
+    channel: CHANNEL_ID,
+    accountId: route.accountId,
+    messageId: body.msgid,
+    timestamp: Date.now(),
+    from: chatType === "group" ? `${CHANNEL_ID}:group:${chatId}` : `${CHANNEL_ID}:${body.from.userid}`,
+    sender: { id: body.from.userid },
+    conversation: { kind: chatType, id: chatId, label: fromLabel },
+    route: { ...route, routeSessionKey: route.sessionKey },
+    reply: { to: `${CHANNEL_ID}:${chatId}` },
+    message: { body: messageBody, rawBody: messageBody, commandBody: messageBody },
+    access: { commands: { authorized: true } },
+    media: toInboundMediaFacts(mediaList),
+    supplemental: quoteContent ? { quote: { body: quoteContent } } : undefined,
+    extra: { ResponseUrl: body.response_url, ReqId: frame.headers.req_id, WeComFrame: frame },
   });
 
-  // 构建标准消息上下文
-  const ctxPayload = core.channel.reply.finalizeInboundContext({
-    Body: messageBody,
-    RawBody: messageBody,
-    CommandBody: messageBody,
-
-    MessageSid: body.msgid,
-
-    From:
-      chatType === "group" ? `${CHANNEL_ID}:group:${chatId}` : `${CHANNEL_ID}:${body.from.userid}`,
-    To: `${CHANNEL_ID}:${chatId}`,
-    SenderId: body.from.userid,
-
-    SessionKey: route.sessionKey,
-    AccountId: route.accountId,
-
-    ChatType: chatType,
-    ConversationLabel: fromLabel,
-
-    Timestamp: Date.now(),
-
-    Provider: CHANNEL_ID,
-    Surface: CHANNEL_ID,
-
-    OriginatingChannel: CHANNEL_ID,
-    OriginatingTo: `${CHANNEL_ID}:${chatId}`,
-
-    CommandAuthorized: true,
-
-    ResponseUrl: body.response_url,
-    ReqId: frame.headers.req_id,
-    WeComFrame: frame,
-
-    MediaPath: mediaList[0]?.path,
-    MediaType: mediaList[0]?.contentType,
-    MediaPaths: mediaPaths,
-    MediaTypes: mediaTypes,
-    MediaUrls: mediaPaths,
-
-    ReplyToBody: quoteContent,
-  });
-
-  return { ctxPayload, route, storePath, chatId, chatType };
+  return { ctxPayload, route, chatId, chatType };
 }
 
 // ============================================================================
@@ -491,7 +455,6 @@ async function finishThinkingStream(ctx: DeliverContext): Promise<void> {
 async function routeAndDispatchMessage(params: {
   ctxPayload: ReturnType<typeof buildMessageContext>["ctxPayload"];
   route: ReturnType<typeof buildMessageContext>["route"];
-  storePath: string;
   chatId: string;
   chatType: string;
   config: OpenClawConfig;
@@ -505,7 +468,6 @@ async function routeAndDispatchMessage(params: {
   const {
     ctxPayload,
     route,
-    storePath,
     chatId,
     chatType,
     config,
@@ -531,28 +493,21 @@ async function routeAndDispatchMessage(params: {
   let isShowThink = !(account.sendThinkingMessage ?? true);
 
   try {
-    // 记录 inbound session 元数据（session 追踪）
-    await core.channel.session.recordInboundSession({
-      storePath,
-      sessionKey: ctxPayload.SessionKey ?? route.sessionKey,
-      ctx: ctxPayload,
-      updateLastRoute:
-        chatType !== "group"
-          ? {
-              sessionKey: route.mainSessionKey,
-              channel: CHANNEL_ID,
-              to: `${CHANNEL_ID}:${chatId}`,
-              accountId: route.accountId,
-            }
-          : undefined,
-      onRecordError: (err) => {
-        runtime.error?.(`[wecom] failed updating session meta: ${String(err)}`);
-      },
-    });
-
-    await core.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-      ctx: ctxPayload,
+    await core.channel.inbound.dispatch({
+      channel: CHANNEL_ID,
+      accountId: route.accountId,
+      route,
+      ctxPayload,
       cfg: config,
+      record: {
+        updateLastRoute: chatType !== "group" ? {
+          sessionKey: route.mainSessionKey,
+          channel: CHANNEL_ID,
+          to: `${CHANNEL_ID}:${chatId}`,
+          accountId: route.accountId,
+        } : undefined,
+        onRecordError: (err) => runtime.error?.(`[wecom] failed updating session meta: ${String(err)}`),
+      },
       replyOptions: {
         // 打印 LLM 返回的原始分片内容（在 openclaw 核心对 MEDIA: 指令解析之前），
         // 用于排查流式分片导致 MEDIA 指令被切断、识别丢失等问题
@@ -577,6 +532,8 @@ async function routeAndDispatchMessage(params: {
             isShowThink = true;
           }
         },
+      },
+      delivery: {
         deliver: async (payload, info) => {
           runtime.log?.(
             `[openclaw -> plugin] kind=${info.kind}, payload=${JSON.stringify(payload)}, info=${JSON.stringify(info)}`,
@@ -854,7 +811,6 @@ async function processWeComMessageNow(entry: WeComMessageEntry): Promise<void> {
   const {
     ctxPayload,
     route,
-    storePath,
     chatId: resolvedChatId,
     chatType,
   } = buildMessageContext(frame, account, config, text, mediaList, quoteContent, runtime);
@@ -865,7 +821,6 @@ async function processWeComMessageNow(entry: WeComMessageEntry): Promise<void> {
     await routeAndDispatchMessage({
       ctxPayload,
       route,
-      storePath,
       chatId: resolvedChatId,
       chatType,
       config,

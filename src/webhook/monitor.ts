@@ -1,3 +1,4 @@
+import { resolveInboundSessionEnvelopeContext, toInboundMediaFacts } from "openclaw/plugin-sdk/channel-inbound";
 /**
  * Webhook 核心消息处理
  *
@@ -664,12 +665,9 @@ export async function startAgentForStream(params: {
   // 5. Agent Envelope 格式化（对齐原版）
   // ──────────────────────────────────────────────────────────────────
   const fromLabel = chatType === "group" ? `group:${chatId}` : `user:${userid}`;
-  const storePath = core.channel.session.resolveStorePath(config.session?.store, {
+  const { envelopeOptions, previousTimestamp } = resolveInboundSessionEnvelopeContext({
+    cfg: config,
     agentId: route.agentId,
-  });
-  const envelopeOptions = core.channel.reply.resolveEnvelopeFormatOptions(config);
-  const previousTimestamp = core.channel.session.readSessionUpdatedAt({
-    storePath,
     sessionKey: route.sessionKey,
   });
   const body = core.channel.reply.formatAgentEnvelope({
@@ -746,40 +744,20 @@ export async function startAgentForStream(params: {
   // ──────────────────────────────────────────────────────────────────
   // 8. 构造 inbound context
   // ──────────────────────────────────────────────────────────────────
-  const ctxPayload = core.channel.reply.finalizeInboundContext({
-    Body: body,
-    RawBody: rawBody,
-    CommandBody: rawBody,
-    Attachments: attachments,
-    From: chatType === "group" ? `wecom:group:${chatId}` : `wecom:${userid}`,
-    To: `wecom:${chatId}`,
-    SessionKey: route.sessionKey,
-    AccountId: route.accountId,
-    ChatType: chatType,
-    ConversationLabel: fromLabel,
-    SenderName: userid,
-    SenderId: userid,
-    Provider: "wecom",
-    Surface: "wecom",
-    MessageSid: msg.msgid,
-    CommandAuthorized: commandAuthorized,
-    OriginatingChannel: "wecom",
-    OriginatingTo: `wecom:${chatId}`,
-    MediaPath: mediaPath,
-    MediaType: mediaType,
-    MediaUrl: mediaPath,
-  });
-
-  // ──────────────────────────────────────────────────────────────────
-  // 9. 会话记录
-  // ──────────────────────────────────────────────────────────────────
-  await core.channel.session.recordInboundSession({
-    storePath,
-    sessionKey: ctxPayload.SessionKey ?? route.sessionKey,
-    ctx: ctxPayload,
-    onRecordError: (err: unknown) => {
-      target.runtime.error?.(`[webhook] session meta update failed: ${String(err)}`);
-    },
+  const ctxPayload = core.channel.inbound.buildContext({
+    channel: "wecom",
+    accountId: route.accountId,
+    messageId: msg.msgid,
+    surface: "wecom",
+    from: chatType === "group" ? `wecom:group:${chatId}` : `wecom:${userid}`,
+    sender: { id: userid, name: userid },
+    conversation: { kind: chatType, id: chatId, label: fromLabel },
+    route: { ...route, routeSessionKey: route.sessionKey },
+    reply: { to: `wecom:${chatId}` },
+    message: { body, rawBody, commandBody: rawBody },
+    access: { commands: { authorized: commandAuthorized === true } },
+    media: toInboundMediaFacts(mediaPath ? [{ path: mediaPath, contentType: mediaType }] : []),
+    extra: { Attachments: attachments },
   });
 
   // ──────────────────────────────────────────────────────────────────
@@ -805,13 +783,17 @@ export async function startAgentForStream(params: {
   // ──────────────────────────────────────────────────────────────────
   // 12. 调度 Agent 回复（核心 deliver 回调）
   // ──────────────────────────────────────────────────────────────────
-  await core.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-    ctx: ctxPayload,
+  await core.channel.inbound.dispatch({
+    channel: "wecom",
+    accountId: route.accountId,
+    route,
+    ctxPayload,
+    record: { onRecordError: (err: unknown) => target.runtime.error?.(`[webhook] session meta update failed: ${String(err)}`) },
     cfg: cfgForDispatch,
     replyOptions: {
       disableBlockStreaming: false,
     },
-    dispatcherOptions: {
+    delivery: {
       deliver: async (payload: { text?: string; mediaUrl?: string; mediaUrls?: string[] }, info: { kind: string }) => {
         let text = payload.text ?? "";
 
@@ -987,7 +969,7 @@ export async function startAgentForStream(params: {
             const looksLikeUrl = /^https?:\/\//i.test(mPath);
 
             if (looksLikeUrl) {
-              const loaded = await core.channel.media.fetchRemoteMedia({ url: mPath });
+              const loaded = await core.channel.media.readRemoteMediaBuffer({ url: mPath });
               buf = loaded.buffer;
               contentType = loaded.contentType;
               filename = loaded.fileName ?? "attachment";

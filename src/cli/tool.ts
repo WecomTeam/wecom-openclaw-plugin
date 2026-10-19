@@ -12,7 +12,6 @@
 import * as path from "node:path";
 import { spawn } from "./process-launcher.js";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
-import { getWeComRuntime } from "../runtime.js";
 import { hasMultiAccounts, resolveWeComAccountMulti } from "../accounts.js";
 import { resolveStateDir } from "../state-dir-resolve.js";
 import {
@@ -35,6 +34,7 @@ import { BoundedOutputCollector } from "./process-output.js";
 // ============================================================================
 
 export interface CreateWeComCliToolOptions {
+  getRuntimeConfig?: () => OpenClawConfig | undefined;
   /** 当前会话对应的账号 ID（来自 ctx.agentAccountId） */
   accountId?: string;
 }
@@ -83,13 +83,7 @@ type ResolvedBot = { botId: string; secret: string; accountId: string; env: CliE
  * 多账号场景下上下文丢失时回退，等于拿 A 企业的凭据调 B 企业的接口。
  * 宁可失败也不能串号—— 只有单账号模式才允许回退。
  */
-function resolveBot(accountId: string | undefined): ResolvedBot {
-  let cfg: OpenClawConfig;
-  try {
-    cfg = getWeComRuntime().config.loadConfig();
-  } catch {
-    throw new CliAuthError("插件运行时未初始化，无法读取 openclaw 配置");
-  }
+function resolveBot(cfg: OpenClawConfig, accountId: string | undefined): ResolvedBot {
 
   const multi = hasMultiAccounts(cfg);
   const id = accountId?.trim();
@@ -125,10 +119,9 @@ function resolveBot(accountId: string | undefined): ResolvedBot {
   return { botId, secret, accountId: resolved.accountId, env };
 }
 
-function resolveBinPath(accountId: string | undefined): { binPath: string; source: string } {
+function resolveBinPath(cfg: OpenClawConfig, accountId: string | undefined): { binPath: string; source: string } {
   let explicit: string | undefined;
   try {
-    const cfg = getWeComRuntime().config.loadConfig();
     const resolved = resolveWeComAccountMulti({ cfg, accountId: accountId ?? null });
     explicit = ((resolved.config as Record<string, unknown> | undefined)?.cli as
       | { binPath?: string }
@@ -357,8 +350,10 @@ export function createWeComCliTool(options: CreateWeComCliToolOptions = {}) {
       let binPath: string;
       let binSource: string;
       try {
-        bot = resolveBot(accountId);
-        ({ binPath, source: binSource } = resolveBinPath(accountId));
+        const cfg = options.getRuntimeConfig?.();
+        if (!cfg) throw new CliAuthError("插件运行时未初始化，无法读取 openclaw 配置");
+        bot = resolveBot(cfg, accountId);
+        ({ binPath, source: binSource } = resolveBinPath(cfg, accountId));
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : String(err));
       }

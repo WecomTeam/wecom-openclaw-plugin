@@ -38,6 +38,9 @@
   },
   "description": "OpenClaw WeCom (企业微信) channel plugin (official by Tencent WeCom team)",
   "openclaw": {
+    "compat": {
+      "pluginApi": ">=2026.8.1-beta.3"
+    },
     "extensions": [
       "./dist/index.js"
     ],
@@ -49,7 +52,28 @@
       "docsLabel": "wecom-openclaw-plugin",
       "blurb": "企业微信机器人接入插件",
       "order": 80,
-      "quickstartAllowFrom": true
+      "quickstartAllowFrom": true,
+      "setup": {
+        "fields": [
+          {
+            "key": "token",
+            "kind": "string",
+            "cli": {
+              "flags": "--token <value>",
+              "description": "WeCom bot ID"
+            }
+          },
+          {
+            "key": "privateKey",
+            "kind": "string",
+            "sensitive": true,
+            "cli": {
+              "flags": "--private-key <value>",
+              "description": "WeCom bot secret"
+            }
+          }
+        ]
+      }
     },
     "install": {
       "npmSpec": "@wecom/wecom-openclaw-plugin",
@@ -65,7 +89,7 @@
     "undici": "^7.24.6"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.3.28"
+    "openclaw": ">=2026.8.1-beta.3"
   },
   "peerDependenciesMeta": {
     "openclaw": {
@@ -74,7 +98,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "openclaw": ">=2026.3.28",
+    "openclaw": "2026.8.1-beta.3",
     "typescript": "^5.3.3",
     "vitest": "^4.1.1"
   }
