@@ -39,6 +39,8 @@ export interface WeComConfig {
   groups?: Record<string, WeComGroupConfig>;
   /** 是否发送"思考中"消息，默认为 true */
   sendThinkingMessage?: boolean;
+  /** 是否将 OpenClaw 的实时预览（onPartialReply）推送到流式消息，默认为 true */
+  streamPartialReply?: boolean;
   /** 额外允许访问的本地媒体路径白名单（支持 ~ 表示 home 目录），如 ["~/Downloads", "~/Documents"] */
   mediaLocalRoots?: string[];
   /** Agent 模式配置（自建应用） */
