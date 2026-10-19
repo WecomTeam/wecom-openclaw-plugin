@@ -1981,41 +1981,41 @@
     eventemitter3 "^5.0.1"
     ws "^8.16.0"
 
-"@wecom/cli-darwin-arm64@1.0.0":
-  version "1.0.0"
-  resolved "https://mirrors.tencent.com/npm/@wecom/cli-darwin-arm64/-/cli-darwin-arm64-1.0.0.tgz#33f64b018df52a1cc3a9355acf82bcb1b92f9610"
-  integrity sha512-kU8B3C3+mN1lycJVmKjQCQbNUWiQuVLmEGBVZ11cGIJTiOWUQRoDz3cR++FmyxmtjF2TVRFmgbByBRrYL2Anow==
+"@wecom/cli-darwin-arm64@1.3.4":
+  version "1.3.4"
+  resolved "https://mirrors.tencent.com/npm/@wecom/cli-darwin-arm64/-/cli-darwin-arm64-1.3.4.tgz#3611fc5fae365595395c27815aaebf488b013b48"
+  integrity sha512-mktTGWYWqwE5exPs/vdiYcwas77G7DPEhAmj1Hl0LqQHUp6tfwplSfJQ/TaESZvmKtoqDglrywtIQeJ0ksFsWA==
 
-"@wecom/cli-darwin-x64@1.0.0":
-  version "1.0.0"
-  resolved "https://mirrors.tencent.com/npm/@wecom/cli-darwin-x64/-/cli-darwin-x64-1.0.0.tgz#e75a89fcfbb922ba1e72d42563124fffee0e5af4"
-  integrity sha512-t6H33rQC7ScggUPupALwqZnzU1L1/ohpvyCr+ixITxWiNc4AGpap4cGn/JmusWk+PpePcWs6jrsIndw8aG+B4w==
+"@wecom/cli-darwin-x64@1.3.4":
+  version "1.3.4"
+  resolved "https://mirrors.tencent.com/npm/@wecom/cli-darwin-x64/-/cli-darwin-x64-1.3.4.tgz#922b7604bba1b94e0afd0b4eadc28682ce5d7c97"
+  integrity sha512-w9TuS95c06uyqbylxNjBCtC3GvR/6Vf6WK1zvsIcif7ivUq6Gu5scssagbD6rBWwhQUJ6o2MQKufpa439mL8bg==
 
-"@wecom/cli-linux-arm64@1.0.0":
-  version "1.0.0"
-  resolved "https://mirrors.tencent.com/npm/@wecom/cli-linux-arm64/-/cli-linux-arm64-1.0.0.tgz#32833fc9a5183c76996565e1d712e3ea6a6b022e"
-  integrity sha512-Ko7xjadjgWV0P7CpU1NHgQYa8zdA2PfoTr5xo7EBMbSEJFfGlLH0fZcIeUBxdHRNtV9LMdit/Qc0WeQELxePAw==
+"@wecom/cli-linux-arm64@1.3.4":
+  version "1.3.4"
+  resolved "https://mirrors.tencent.com/npm/@wecom/cli-linux-arm64/-/cli-linux-arm64-1.3.4.tgz#2b603b97fee5e218830512d497648f19d309536d"
+  integrity sha512-BUvkJCMiM6aImK1MGjA6TuNslfay9eg/cOrmmvg3RLAlB9xTQUfqdq9YQxFog04wEpnlZSsgNXq6bWQaIvwX9w==
 
-"@wecom/cli-linux-x64@1.0.0":
-  version "1.0.0"
-  resolved "https://mirrors.tencent.com/npm/@wecom/cli-linux-x64/-/cli-linux-x64-1.0.0.tgz#c89319f5fcc6c60ec849d4914a16e1cda051e812"
-  integrity sha512-i3VnFhcEF7OXdlXJHYs7nyqlVEbrgQnpE/qWDnoAQ++auPWR0kI/62z+U1GdQgcjLHo2ZE8PNmQzABQEbEbkmQ==
+"@wecom/cli-linux-x64@1.3.4":
+  version "1.3.4"
+  resolved "https://mirrors.tencent.com/npm/@wecom/cli-linux-x64/-/cli-linux-x64-1.3.4.tgz#8a2375d1d62e277a13fc9783ac20854bd7ef7fe1"
+  integrity sha512-Mguwa8AqwTM5hqKZXBs7lwMJ7AZLCJpu+usuHdQLQV9bzF3gM9e70khKHAQCS7focgMHvT/+mW++S7JvXKdL6Q==
 
-"@wecom/cli-win32-x64@1.0.0":
-  version "1.0.0"
-  resolved "https://mirrors.tencent.com/npm/@wecom/cli-win32-x64/-/cli-win32-x64-1.0.0.tgz#a9573765dec4345b2369ff3b443ee41f1c235ef2"
-  integrity sha512-idb65n+rUSNzRJrjz/3OFn1ET/MXyCepmU5sRehIj8o+0RD+BThtL5BZbGVOfmO+Ew4DTG9PZIA5j6ziKYsXXQ==
+"@wecom/cli-win32-x64@1.3.4":
+  version "1.3.4"
+  resolved "https://mirrors.tencent.com/npm/@wecom/cli-win32-x64/-/cli-win32-x64-1.3.4.tgz#50fc25c9716b271147cc54de665769fef13d9ce0"
+  integrity sha512-FomGDkkDVZpKB9GZjAdMvR7491z9DMiaEzYQyDkA+3Yx6I100gJFnIJ31VZr6oMIRrZCT19GzNP+7c4DzuoPbg==
 
-"@wecom/cli@^1.0.0":
-  version "1.0.0"
-  resolved "https://mirrors.tencent.com/npm/@wecom/cli/-/cli-1.0.0.tgz#2e69a3d8f92ba2b33ef5c511714c0fd9d8ef8bb2"
-  integrity sha512-H7tRoD8wlOfKwuzef6G7sBTmvcKvrDuP6R4q2x+AEUfoRxMsPuQcyw9eEBPwSFy+ub42C8dzRJxM1pSiM5QlyA==
+"@wecom/cli@^1.3.4":
+  version "1.3.4"
+  resolved "https://mirrors.tencent.com/npm/@wecom/cli/-/cli-1.3.4.tgz#8287e14e97a42299da9106e7469d445133a28529"
+  integrity sha512-vz47EsT/BKkHBONVt94xhZtUWhvMR4uF9Y4TTNUwF7PnLETqyFyrNNHwG3aTLmhMNC/ecqRWUUqvNgP90nreaQ==
   optionalDependencies:
-    "@wecom/cli-darwin-arm64" "1.0.0"
-    "@wecom/cli-darwin-x64" "1.0.0"
-    "@wecom/cli-linux-arm64" "1.0.0"
-    "@wecom/cli-linux-x64" "1.0.0"
-    "@wecom/cli-win32-x64" "1.0.0"
+    "@wecom/cli-darwin-arm64" "1.3.4"
+    "@wecom/cli-darwin-x64" "1.3.4"
+    "@wecom/cli-linux-arm64" "1.3.4"
+    "@wecom/cli-linux-x64" "1.3.4"
+    "@wecom/cli-win32-x64" "1.3.4"
 
 abort-controller@^3.0.0:
   version "3.0.0"
