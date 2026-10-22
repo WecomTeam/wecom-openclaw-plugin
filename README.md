@@ -185,6 +185,37 @@ The plugin supports two connection modes that can be used independently or toget
 | `channels.wecom.groupAllowFrom` | Group allowlist (group IDs) | — | `[]` |
 | `channels.wecom.groups` | Per-group config (e.g. sender allowlist) | — | `{}` |
 
+#### Human-readable session names
+
+The plugin resolves recent direct-chat and group names through the bundled
+`wecom-cli message aibot sessions list` command and stores them in a bounded
+30-minute in-memory cache. Lookup failures never block inbound messages; raw IDs
+remain the fallback.
+
+Static mappings take precedence and are useful for important identities or chats
+that are not present in the recent-session list:
+
+```json
+{
+  "channels": {
+    "wecom": {
+      "identity": {
+        "autoResolve": true,
+        "userNames": {
+          "userid-example": "Example User"
+        },
+        "groupNames": {
+          "chatid-example": "Example Group"
+        }
+      }
+    }
+  }
+}
+```
+
+Resolved names populate OpenClaw's `SenderName`, `GroupSubject`, and
+`ConversationLabel`, so the agent context and session list use readable labels.
+
 #### Media Settings
 
 | Config Path | Description | Default |

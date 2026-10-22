@@ -24,6 +24,8 @@ import type { WecomAgentInboundMessage } from "../types/index.js";
 import { buildWecomUnauthorizedCommandPrompt, resolveWecomCommandAuthorization } from "../shared/command-auth.js";
 import { processDynamicRouting } from "../dynamic-routing.js";
 import { CHANNEL_ID, DEFAULT_MEDIA_MAX_MB } from "../const.js";
+import { resolveWeComAccountMulti } from "../accounts.js";
+import { resolveWeComIdentity } from "../identity-resolver.js";
 
 function resolveWecomMediaMaxBytes(config: OpenClawConfig): number {
     return (config.channels?.wecom?.media?.maxBytes as number | undefined) ?? DEFAULT_MEDIA_MAX_MB * 1024 * 1024;
@@ -459,8 +461,15 @@ async function processAgentMessage(params: {
     }
     // ===== 动态 Agent 路由处理结束 =====
 
-    // 构建上下文
-    const fromLabel = isGroup ? `group:${peerId}` : `user:${fromUser}`;
+    const identity = await resolveWeComIdentity({
+        account: resolveWeComAccountMulti({ cfg: config, accountId: agent.accountId }),
+        chatType: isGroup ? "group" : "direct",
+        chatId: peerId,
+        senderId: fromUser,
+        log,
+    });
+    const conversationLabel = identity.conversationName ?? (isGroup ? `group:${peerId}` : `user:${fromUser}`);
+    const envelopeFrom = identity.senderName ?? `user:${fromUser}`;
     const storePath = core.channel.session.resolveStorePath(config.session?.store, {
         agentId: route.agentId,
     });
@@ -471,7 +480,7 @@ async function processAgentMessage(params: {
     });
     const body = core.channel.reply.formatAgentEnvelope({
         channel: "WeCom",
-        from: fromLabel,
+        from: envelopeFrom,
         previousTimestamp,
         envelope: envelopeOptions,
         body: finalContent,
@@ -511,9 +520,10 @@ async function processAgentMessage(params: {
         SessionKey: route.sessionKey,
         AccountId: route.accountId,
         ChatType: isGroup ? "group" : "direct",
-        ConversationLabel: fromLabel,
-        SenderName: fromUser,
+        ConversationLabel: conversationLabel,
+        SenderName: identity.senderName,
         SenderId: fromUser,
+        GroupSubject: isGroup ? identity.conversationName ?? peerId : undefined,
         Provider: CHANNEL_ID,
         Surface: "webchat",
         OriginatingChannel: CHANNEL_ID,

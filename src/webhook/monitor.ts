@@ -48,6 +48,7 @@ import {
   buildStreamTextPlaceholderReply,
 } from "./helpers.js";
 import { processDynamicRouting } from "../dynamic-routing.js";
+import { resolveWeComIdentity } from "../identity-resolver.js";
 // ============================================================================
 // 入站消息处理
 // ============================================================================
@@ -663,7 +664,17 @@ export async function startAgentForStream(params: {
   // ──────────────────────────────────────────────────────────────────
   // 5. Agent Envelope 格式化（对齐原版）
   // ──────────────────────────────────────────────────────────────────
-  const fromLabel = chatType === "group" ? `group:${chatId}` : `user:${userid}`;
+  const identity = await resolveWeComIdentity({
+    account,
+    chatType: chatType === "group" ? "group" : "direct",
+    chatId,
+    senderId: userid,
+    log: target.runtime.log,
+  });
+  const conversationLabel =
+    identity.conversationName ??
+    (chatType === "group" ? `group:${chatId}` : `user:${userid}`);
+  const envelopeFrom = identity.senderName ?? `user:${userid}`;
   const storePath = core.channel.session.resolveStorePath(config.session?.store, {
     agentId: route.agentId,
   });
@@ -674,7 +685,7 @@ export async function startAgentForStream(params: {
   });
   const body = core.channel.reply.formatAgentEnvelope({
     channel: "WeCom",
-    from: fromLabel,
+    from: envelopeFrom,
     previousTimestamp,
     envelope: envelopeOptions,
     body: rawBody,
@@ -756,9 +767,10 @@ export async function startAgentForStream(params: {
     SessionKey: route.sessionKey,
     AccountId: route.accountId,
     ChatType: chatType,
-    ConversationLabel: fromLabel,
-    SenderName: userid,
+    ConversationLabel: conversationLabel,
+    SenderName: identity.senderName,
     SenderId: userid,
+    GroupSubject: chatType === "group" ? identity.conversationName ?? chatId : undefined,
     Provider: "wecom",
     Surface: "wecom",
     MessageSid: msg.msgid,

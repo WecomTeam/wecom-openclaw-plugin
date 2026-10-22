@@ -7,6 +7,7 @@ import {
   shouldWarnLegacyToolAllow,
 } from "./src/cli/legacy-tool-warning.js";
 import { setWeComRuntime } from "./src/runtime.js";
+import { resolveWeComAccountMulti } from "./src/accounts.js";
 import { CHANNEL_ID, WEBHOOK_PATHS } from "./src/const.js";
 import { createWecomAgentWebhookHandler } from "./src/agent/webhook.js";
 import { handleWecomWebhookRequest } from "./src/webhook/index.js";
@@ -32,7 +33,19 @@ const plugin = {
           `[wecom-cli:tool] registerTool ctx: sessionKey="${ctx.sessionKey}", ` +
           `messageChannel="${ctx.messageChannel}", agentAccountId="${ctx.agentAccountId}"`,
         );
-        return createWeComCliTool({ accountId: ctx.agentAccountId });
+        // Tool factories may execute in an isolated module context where the
+        // plugin-level runtime store is unavailable. Resolve the account from
+        // the registration snapshot so credential lookup never depends on
+        // that module singleton.
+        const resolvedAccount = resolveWeComAccountMulti({
+          cfg: api.config,
+          accountId: ctx.agentAccountId ?? null,
+        });
+        return createWeComCliTool({
+          accountId: ctx.agentAccountId,
+          resolvedAccount,
+          runtime: api.runtime,
+        });
       },
       { name: CLI_TOOL_NAME },
     );
