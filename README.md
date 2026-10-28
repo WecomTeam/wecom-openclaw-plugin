@@ -164,6 +164,7 @@ The plugin supports two connection modes that can be used independently or toget
 | `channels.wecom.secret` | WeCom bot secret | — | — |
 | `channels.wecom.websocketUrl` | WebSocket endpoint | — | `wss://openws.work.weixin.qq.com` |
 | `channels.wecom.sendThinkingMessage` | Send "thinking" placeholder | `true` / `false` | `true` |
+| `channels.wecom.streamPartialReply` | Stream the reply while it is being generated (off: show it after generation completes) | `true` / `false` | `true` |
 
 #### Webhook Mode (`connectionMode: "webhook"`)
 

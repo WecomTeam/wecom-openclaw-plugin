@@ -529,6 +529,20 @@ async function routeAndDispatchMessage(params: {
   };
 
   let isShowThink = !(account.sendThinkingMessage ?? true);
+  // 实时预览：openai-completions 类模型（vLLM / SGLang 等）的文本在 OpenClaw 中
+  // 要等整条消息结束才进入 block 通道（deliver），仅靠 deliver 会导致首字很晚才出现。
+  const streamPartialReply = account.config.streamPartialReply ?? true;
+  let partialReplyClosed = false;
+  // 分段：OpenClaw 每开始一条新的 assistant 消息（如工具调用之后）都会把 onPartialReply 的文本清零，
+  // deliver 也只交付最后一条消息。之前各条消息的文字记在 segments，预览和最终内容都按顺序拼在前面，
+  // 与 OpenClaw Control 显示一致。currentPartial 记最后收到（不是最后发出）的全文，节流跳过的帧不丢字
+  const segments: string[] = [];
+  let currentPartial = "";
+  const withSegments = (text: string) => {
+    const parts = segments.filter((s) => !text.includes(s));
+    if (text) parts.push(text);
+    return parts.join("\n\n");
+  };
 
   try {
     // 记录 inbound session 元数据（session 追踪）
@@ -554,11 +568,59 @@ async function routeAndDispatchMessage(params: {
       ctx: ctxPayload,
       cfg: config,
       replyOptions: {
-        // 打印 LLM 返回的原始分片内容（在 openclaw 核心对 MEDIA: 指令解析之前），
-        // 用于排查流式分片导致 MEDIA 指令被切断、识别丢失等问题
-        // onPartialReply: (payload: unknown) => {
-        // runtime.log?.(`[openclaw -> plugin][partial] payload=${JSON.stringify(payload)}`);
-        // },
+        // payload.text 为当前这条回答到目前为止的全文；最终内容仍以 deliver 为准
+        onPartialReply: streamPartialReply
+          ? async (payload) => {
+              const partial = typeof payload?.text === "string" ? payload.text : "";
+              if (!partial || partialReplyClosed || state.streamExpired || !state.streamId) {
+                return;
+              }
+              // 模型可能把工具调用写成纯文本 JSON，由 OpenClaw 在消息结束时解析，此前不预览
+              if (partial.trimStart().startsWith("{")) {
+                return;
+              }
+              // MEDIA: 指令行不预览，媒体仍由 deliver 统一处理
+              const preview = partial
+                .split("\n")
+                .filter((line) => !/^\s*MEDIA:/i.test(line))
+                .join("\n");
+              currentPartial = preview;
+              const combined = withSegments(
+                state.accumulatedText ? `${state.accumulatedText}\n\n${preview}` : preview,
+              );
+              const displayText = maskTemplateCardBlocks(combined, () => {});
+              if (!displayText.trim()) {
+                return;
+              }
+              try {
+                await sendWeComReplyNonBlocking({
+                  wsClient,
+                  frame,
+                  text: displayText,
+                  runtime,
+                  finish: false,
+                  streamId: state.streamId,
+                });
+              } catch (err) {
+                if (err instanceof StreamExpiredError) {
+                  state.streamExpired = true;
+                } else {
+                  runtime.log?.(`[wecom][partial] send failed: ${String(err)}`);
+                }
+              }
+            }
+          : undefined,
+        // 新的一条 assistant 消息开始：上一条的文字收进 segments
+        onAssistantMessageStart: streamPartialReply
+          ? () => {
+              const done = currentPartial.trim();
+              currentPartial = "";
+              if (done && !partialReplyClosed && !segments.includes(done)) {
+                segments.push(done);
+                runtime.log?.(`[wecom][partial] segment ${segments.length} kept (${done.length} chars)`);
+              }
+            }
+          : undefined,
       },
       dispatcherOptions: {
         onReplyStart: async () => {
@@ -614,7 +676,7 @@ async function routeAndDispatchMessage(params: {
           // 避免 JSON 源码在流式输出过程中暴露给终端用户
           if (state.accumulatedText && !state.streamExpired) {
             try {
-              const displayText = maskTemplateCardBlocks(state.accumulatedText, (...args: any[]) =>
+              const displayText = maskTemplateCardBlocks(withSegments(state.accumulatedText), (...args: any[]) =>
                 runtime.log?.(...args),
               );
               // if (displayText !== state.accumulatedText) {
@@ -646,6 +708,10 @@ async function routeAndDispatchMessage(params: {
       },
     });
 
+    partialReplyClosed = true;
+    // 之前各条消息的文字并入最终内容
+    state.accumulatedText = withSegments(state.accumulatedText);
+
     // 模板卡片检测与发送（在关闭 thinking 流之前独立处理）
     const cardResult = await processTemplateCardsIfNeeded({
       wsClient,
@@ -664,6 +730,8 @@ async function routeAndDispatchMessage(params: {
     safeCleanup();
   } catch (err) {
     runtime.error?.(`[wecom][plugin] Failed to process message: ${String(err)}`);
+    partialReplyClosed = true;
+    state.accumulatedText = withSegments(state.accumulatedText);
     // 即使 dispatch 抛异常，也需要处理卡片和关闭 thinking 流
     try {
       const cardResult = await processTemplateCardsIfNeeded({
