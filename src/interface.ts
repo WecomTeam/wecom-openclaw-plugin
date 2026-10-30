@@ -40,6 +40,10 @@ export interface MessageState {
   hasMedia?: boolean;
   /** 是否有媒体发送失败（权限不足、文件过大等） */
   hasMediaFailed?: boolean;
+
+  /** 本次回复中已发送过的 mediaUrl（用于 block/final 场景去重，防止文件重复发送） */
+  sentMediaUrls?: Set<string>;
+
   /** 媒体发送失败时的纯文本错误摘要（用于替换 thinking 流展示给用户） */
   mediaErrorSummary?: string;
   // /** deliver 回调是否被调用过（用于区分"核心无回复"和"核心回复了空内容"） */
