@@ -21,7 +21,7 @@ import type { WeComMultiAccountConfig } from "./accounts.js";
 import { CHANNEL_ID, TEXT_CHUNK_LIMIT, WEBHOOK_PATHS } from "./const.js";
 import { uploadAndSendMedia } from "./media-uploader.js";
 import { registerAgentWebhookTarget, deregisterAgentWebhookTarget } from "./agent/webhook.js";
-import { resolveWecomTarget } from "./target.js";
+import { resolveWecomTarget, resolveWecomChatId } from "./target.js";
 import { sendText as sendAgentText, sendMedia as sendAgentMedia, uploadMedia as uploadAgentMedia } from "./agent/api-client.js";
 import { startWebhookGateway, stopWebhookGateway } from "./webhook/index.js";
 import type { ResolvedWebhookAccount, WebhookGatewayContext } from "./webhook/index.js";
@@ -44,8 +44,9 @@ async function sendWeComMessage({
   const resolvedAccountId = accountId ?? DEFAULT_ACCOUNT_ID;
 
   // 从 to 中提取目标（格式是 "${CHANNEL_ID}:xxx" 或直接是目标字符串）
-  const channelPrefix = new RegExp(`^${CHANNEL_ID}:`, "i");
-  const chatId = to.replace(channelPrefix, "");
+  // 出站边界统一剥离命名空间前缀 + OpenClaw 目标类型前缀（user:/channel:/group: 等），
+  // 企业微信 API 只接受裸 chatid / userid（否则 errcode=93006 invalid chatid）。
+  const chatId = resolveWecomChatId(to) ?? to;
 
   // ── 尝试 Bot WebSocket ──
   const wsClient = getWeComWebSocket(resolvedAccountId);
@@ -71,7 +72,7 @@ async function sendWeComMessage({
     );
   }
 
-  const target = resolveWecomTarget(chatId);
+  const target = resolveWecomTarget(to);
   if (!target) {
     throw new Error(`Cannot resolve outbound target from "${to}"`);
   }
@@ -319,8 +320,7 @@ export const wecomPlugin: ChannelPlugin<ResolvedWeComAccount> = {
     },
     sendMedia: async ({to, text, mediaUrl, mediaLocalRoots, accountId, cfg}) => {
       const resolvedAccountId = accountId ?? DEFAULT_ACCOUNT_ID;
-      const channelPrefix = new RegExp(`^${CHANNEL_ID}:`, "i");
-      const chatId = to.replace(channelPrefix, "");
+      const chatId = resolveWecomChatId(to) ?? to;
 
       // 如果没有 mediaUrl，fallback 为纯文本
       if (!mediaUrl) {
@@ -376,7 +376,7 @@ export const wecomPlugin: ChannelPlugin<ResolvedWeComAccount> = {
       }
 
       // Agent 模式：文本 fallback（Agent HTTP API 不支持直接发 mediaUrl，需先上传）
-      const target = resolveWecomTarget(chatId);
+      const target = resolveWecomTarget(to);
       if (!target) {
         throw new Error(`Cannot resolve outbound target from "${to}"`);
       }

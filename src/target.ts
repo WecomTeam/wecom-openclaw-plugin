@@ -34,11 +34,59 @@ export interface WecomTarget {
  * 
  * @param raw - The raw target string (e.g. "party:1", "zhangsan", "wecom:wr123")
  */
+/**
+ * OpenClaw 目标类型前缀白名单。
+ *
+ * OpenClaw 的出站目标可能写成 "<type>:<id>"（如 user:yangtao / channel:xxx），
+ * 而企业微信 API 只接受裸 chatid / userid，必须在出站边界统一剥离，
+ * 否则企业微信 API 会硬失败：errcode=93006 invalid chatid。
+ */
+const OPENCLAW_TARGET_TYPE_PREFIX = /^(user|channel|group|dm|conversation|room|thread):/i;
+
+/**
+ * OpenClaw 路由前缀（对企微无语义），仅用于 Agent HTTP API 回退路径：
+ * 这些前缀需要剥离，但 user:/group:/chat:/party:/tag: 等企微语义前缀必须保留，
+ * 交给 resolveWecomTarget 解析（否则纯数字 userid 会被误判为部门 ID）。
+ */
+const OPENCLAW_ROUTING_PREFIX = /^(channel|dm|conversation|room|thread):/i;
+
+/**
+ * 命名空间前缀（wecom: / qywx: 等），必须最先剥离。
+ */
+const WECOM_NAMESPACE_PREFIX = /^(wecom-agent|wecom|wechatwork|wework|qywx):/i;
+
+/**
+ * 剥离 OpenClaw 目标类型前缀，得到可直接提交给企业微信 API 的裸 chatid / userid。
+ *
+ * 规则：
+ * 1. 先剥离命名空间前缀（wecom: 等）；
+ * 2. 再剥离类型前缀白名单（user:/channel:/group:/dm:/conversation:/room:/thread:）；
+ * 3. 守卫：仅当剩余值非空且与原值不同时才返回剥离结果。
+ *
+ * 例："user:yangtao" -> "yangtao"，"wecom:user:yangtao" -> "yangtao"，
+ *     "wecom:group:wrXXXX" -> "wrXXXX"，"yangtao" -> "yangtao"。
+ */
+export function resolveWecomChatId(raw: string | undefined): string | undefined {
+  if (typeof raw !== "string") return raw;
+  const trimmed = raw.trim();
+  if (!trimmed) return trimmed;
+
+  const withoutNamespace = trimmed.replace(WECOM_NAMESPACE_PREFIX, "");
+  const stripped = withoutNamespace.replace(OPENCLAW_TARGET_TYPE_PREFIX, "");
+
+  // 守卫：剩余值为空或没有变化时，保持原值
+  if (!stripped || stripped === withoutNamespace) return withoutNamespace;
+  return stripped;
+}
+
 export function resolveWecomTarget(raw: string | undefined): WecomTarget | undefined {
     if (!raw?.trim()) return undefined;
 
     // 1. Remove standard namespace prefixes (移除标准命名空间前缀)
-    let clean = raw.trim().replace(/^(wecom-agent|wecom|wechatwork|wework|qywx):/i, "");
+    let clean = raw.trim().replace(WECOM_NAMESPACE_PREFIX, "");
+
+    // 1.5 剥离 OpenClaw 路由前缀（企微无语义），保留 user:/group:/party:/tag: 等企微语义前缀
+    clean = clean.replace(OPENCLAW_ROUTING_PREFIX, "");
 
     // 2. Explicit Type Prefixes (显式类型前缀)
     if (/^party:/i.test(clean)) {
